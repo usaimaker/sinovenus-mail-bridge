@@ -1,7 +1,7 @@
 name: mail-bridge
 on:
   schedule:
-    - cron: '*/10 * * * *'   # every 10 minutes; sender enforces 8-11 min gaps within ticks
+    - cron: '*/5 * * * *'   # every 5 min; sender enforces 8-11 min gaps within ticks
   workflow_dispatch:
 permissions:
   contents: write
