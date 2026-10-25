@@ -1,0 +1,25 @@
+name: mail-bridge
+on:
+  schedule:
+    - cron: '*/10 * * * *'   # every 10 minutes; sender enforces 8-11 min gaps within ticks
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install tzdata
+      - name: Run sender
+        env:
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SCHEDULE_B64_1: ${{ secrets.SCHEDULE_B64_1 }}
+          SCHEDULE_B64_2: ${{ secrets.SCHEDULE_B64_2 }}
+          SCHEDULE_B64_3: ${{ secrets.SCHEDULE_B64_3 }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python sender.py
