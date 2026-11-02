@@ -1,25 +1,59 @@
 name: mail-bridge
+
 on:
   schedule:
-    - cron: '*/5 * * * *'   # every 5 min; sender enforces 8-11 min gaps within ticks
+    # watchdog only: GitHub throttles schedule heavily, so this just restarts a broken chain
+    - cron: '*/15 * * * *'
   workflow_dispatch:
+    inputs:
+      chain:
+        description: '1 = self-chained continuation run'
+        required: false
+        default: '0'
+
 permissions:
   contents: write
+  actions: write
+
+# one sender at a time, never cancel a live run
+concurrency:
+  group: mail-bridge-chain
+  cancel-in-progress: false
+
 jobs:
   send:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 355
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
       - run: pip install tzdata
-      - name: Run sender
+
+      - name: Watchdog guard
+        id: guard
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHAIN: ${{ github.event.inputs.chain || '0' }}
+        run: python guard.py
+
+      - name: Run sender (long chain loop)
+        if: steps.guard.outcome == 'success'
         env:
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           SCHEDULE_B64_1: ${{ secrets.SCHEDULE_B64_1 }}
           SCHEDULE_B64_2: ${{ secrets.SCHEDULE_B64_2 }}
           SCHEDULE_B64_3: ${{ secrets.SCHEDULE_B64_3 }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+          DAILY_CAP: '20'
+          GAP_MIN: '8'
+          GAP_MAX: '11'
+          RUN_BUDGET_MIN: '330'
+          CHAIN_DISPATCH: '1'
+          WF_FILE: 'bridge.yml'
         run: python sender.py
