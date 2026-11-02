@@ -1,0 +1,34 @@
+name: lead-miner
+
+on:
+  schedule:
+    - cron: '30 17 * * *'      # 01:30 BJT daily
+  workflow_dispatch:
+    inputs:
+      batch:
+        description: 'domains to mine this run'
+        required: false
+        default: '180'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lead-miner
+  cancel-in-progress: false
+
+jobs:
+  mine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Mine leads from domain corpus
+        env:
+          DATA_KEY: ${{ secrets.DATA_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MINE_BATCH: ${{ github.event.inputs.batch || '180' }}
+        run: python miner.py
