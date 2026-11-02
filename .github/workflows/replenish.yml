@@ -1,0 +1,36 @@
+name: schedule-replenish
+
+on:
+  schedule:
+    - cron: '10 19 * * *'      # 03:10 BJT daily, after the miner has run
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: schedule-replenish
+  cancel-in-progress: false
+
+jobs:
+  replenish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install tzdata pynacl
+      - name: Top up the schedule from the lead pool
+        env:
+          DATA_KEY: ${{ secrets.DATA_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+          SCHEDULE_B64_1: ${{ secrets.SCHEDULE_B64_1 }}
+          SCHEDULE_B64_2: ${{ secrets.SCHEDULE_B64_2 }}
+          SCHEDULE_B64_3: ${{ secrets.SCHEDULE_B64_3 }}
+          SCHEDULE_B64_4: ${{ secrets.SCHEDULE_B64_4 }}
+          DAILY_CAP: '20'
+          MIN_RUNWAY_DAYS: '5'
+        run: python cloud_replenish.py
