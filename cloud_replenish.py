@@ -44,15 +44,15 @@ def xor(b):
 def load_blob(path, default):
     try:
         d = json.loads(api(f"https://api.github.com/repos/{REPO}/contents/{path}"))
-        return json.loads(xor(base64.b64decode(d["content"])).decode("utf-8"))
+        raw = xor(base64.b64decode(d["content"]))            # file body is xor(json)
+        return json.loads(raw.decode("utf-8"))
     except Exception as e:
-        print(f"load {path}: {type(e).__name__}")
+        print(f"load {path}: {type(e).__name__}: {e}")
         return default
 
 
 def save_blob(path, obj, msg):
-    body_raw = base64.b64encode(xor(json.dumps(obj, ensure_ascii=False).encode()))
-    content = base64.b64encode(body_raw).decode()
+    content = base64.b64encode(xor(json.dumps(obj, ensure_ascii=False).encode())).decode()
     url = f"https://api.github.com/repos/{REPO}/contents/{path}"
     for attempt in range(5):
         try:
@@ -141,15 +141,25 @@ def main():
 
     taken_emails = {e["email"].lower() for e in entries}
     taken_doms = {e["email"].split("@")[-1].lower() for e in entries}
+    ISP = {"gmail.com", "googlemail.com", "hotmail.com", "outlook.com", "live.com", "yahoo.com",
+           "ymail.com", "aol.com", "icloud.com", "me.com", "mail.com", "gmx.net", "gmx.de",
+           "web.de", "free.fr", "orange.fr", "wanadoo.fr", "tiscali.it", "libero.it", "virgilio.it",
+           "terra.com.br", "uol.com.br", "bol.com.br", "qq.com", "163.com", "126.com", "sina.com",
+           "naver.com", "daum.net", "hanmail.net", "yandex.ru", "mail.ru", "protonmail.com",
+           "msn.com", "mac.com", "btinternet.com", "prodigy.net.mx"}
     fresh, seen = [], set()
+    dropped_isp = 0
     for c in pool:
         em = c["email"].lower()
         dom = em.split("@")[-1]
+        if dom in ISP:
+            dropped_isp += 1
+            continue
         if em in taken_emails or dom in taken_doms or dom in seen:
             continue
         seen.add(dom)
         fresh.append(c)
-    print(f"usable pool leads: {len(fresh)}")
+    print(f"usable pool leads: {len(fresh)} (dropped ISP mailboxes: {dropped_isp})")
     if not fresh:
         print("all pool leads already scheduled/contacted")
         return 0
