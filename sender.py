@@ -147,6 +147,62 @@ def build_msg(e, now):
     ).encode("utf-8")
 
 
+# ---------------- self-healing: bounce scan ----------------
+BOUNCE_FROM = ("mailer-daemon", "postmaster", "mail-daemon", "no-reply")
+BOUNCE_SUBJ = ("undelivered", "delivery status", "delivery failure", "failure notice",
+               "returned mail", "mail delivery failed", "退信", "投递失败", "无法投递")
+ADDR_RE = None
+
+
+def scan_bounces(limit=120):
+    """Read-only IMAP scan of recent INBOX mail; return set of dead addresses.
+
+    Only headers for most messages; bodies fetched solely for bounce-looking ones.
+    """
+    import imaplib, ssl, email, re, email.utils
+    global ADDR_RE
+    if ADDR_RE is None:
+        ADDR_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+    dead = set()
+    try:
+        m = imaplib.IMAP4_SSL("imap.exmail.qq.com", 993, ssl_context=ssl.create_default_context())
+        m.login(SMTP_USER, SMTP_PASS)
+        m.select("INBOX", readonly=True)
+        typ, data = m.search(None, "ALL")
+        ids = data[0].split()[-limit:]
+        for i in ids:
+            try:
+                typ, hd = m.fetch(i, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])")
+                raw = hd[0][1] or b""
+                msg = email.message_from_bytes(raw)
+                frm = (msg.get("From") or "").lower()
+                subj = (msg.get("Subject") or "").lower()
+                if not any(k in frm for k in BOUNCE_FROM) and not any(k in subj for k in BOUNCE_SUBJ):
+                    continue
+                typ, bd = m.fetch(i, "(BODY.PEEK[TEXT])")
+                body = (bd[0][1] or b"").decode("utf-8", "ignore")
+                for a in ADDR_RE.findall(body):
+                    a = a.lower().strip(".")
+                    if a.endswith("@sinovenusltd.com") or "mailer-daemon" in a or "postmaster" in a:
+                        continue
+                    dead.add(a)
+            except Exception:
+                continue
+        m.logout()
+    except Exception as e:
+        print("BOUNCE SCAN failed:", type(e).__name__)
+    return dead
+
+
+def schedule_health(entries, sent):
+    """days of runway left + gap detection"""
+    left = [e for e in entries if e["id"] not in sent]
+    if not left:
+        return 0, None, 0
+    days = sorted({e["bjt_send"][:10] for e in left})
+    return len(days), days[-1], len(left)
+
+
 def dispatch_next():
     """trigger the next run so the chain never dies"""
     if not (PAT and REPO):
@@ -192,6 +248,57 @@ def main():
     sent = set(ledger.get("sent_ids", []))
     daily = ledger.get("daily", {}) or {}
     print(f"ledger: sent={len(sent)} days_tracked={len(daily)}")
+
+    # ---- self-heal 1: bounce scan (dead addresses must never be mailed again) ----
+    bounced = set(ledger.get("bounced", []) or [])
+    if os.environ.get("ENABLE_BOUNCE_SCAN", "1") == "1" and SMTP_PASS:
+        found = scan_bounces()
+        new_dead = found - bounced
+        if new_dead:
+            bounced |= found
+            ledger["bounced"] = sorted(bounced)
+            print(f"BOUNCE SCAN: {len(found)} dead addresses seen, {len(new_dead)} new -> blocklisted")
+            for a in list(new_dead)[:5]:
+                print("   dead", mask(a))
+        else:
+            print(f"BOUNCE SCAN: {len(bounced)} blocklisted, nothing new")
+    # drop schedule entries that point at dead addresses
+    blocked = {e["id"] for e in entries if e["email"].lower() in bounced}
+    if blocked:
+        print(f"self-heal: {len(blocked)} scheduled entries target dead addresses -> skipped")
+        sent |= blocked
+
+    # ---- self-heal 2: runway check (alerts when the schedule is about to run dry) ----
+    days_left, last_day, left_n = schedule_health(entries, sent)
+    print(f"RUNWAY: {left_n} sends on {days_left} days, last planned {last_day}")
+    ledger["runway"] = {"days": days_left, "last_day": last_day, "left": left_n,
+                        "checked": now_bjt().isoformat()}
+    if days_left < 3:
+        print("ALERT: schedule runway below 3 working days - replenish needed")
+        today_s = now_bjt().strftime("%Y-%m-%d")
+        if ledger.get("last_alert") != today_s:
+            try:
+                alert = (f"From: {SMTP_USER}\r\nTo: alex@sinovenusltd.com\r\n"
+                         f"Subject: [SinoVenus] schedule runway low: {days_left} days left\r\n"
+                         f"Date: {__import__('email.utils').utils.format_datetime(now_bjt())}\r\n"
+                         f"Content-Type: text/plain; charset=utf-8\r\n\r\n"
+                         f"Cloud mail bridge self-check.\r\n"
+                         f"Unscheduled sends left: {left_n}\r\n"
+                         f"Working days left: {days_left}\r\n"
+                         f"Last planned day: {last_day}\r\n"
+                         f"Action: replenish the lead pool and rebuild SCHEDULE_B64_1.\r\n")
+                import smtplib, ssl as _ssl
+                c = _ssl.create_default_context(); c.check_hostname = False; c.verify_mode = _ssl.CERT_NONE
+                s = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=c, timeout=45)
+                s.login(SMTP_USER, SMTP_PASS)
+                s.sendmail(SMTP_USER, ["alex@sinovenusltd.com"], alert.encode("utf-8"))
+                s.quit()
+                ledger["last_alert"] = today_s
+                print("ALERT email sent to alex@")
+            except Exception as ex:
+                print("ALERT email failed:", type(ex).__name__)
+    # publish health state right away so the ledger reflects reality even on an idle run
+    sha = push_ledger(ledger, sha)
 
     by_id = {e["id"]: e for e in entries}
     # console: how many still unsent, and how far the schedule reaches
