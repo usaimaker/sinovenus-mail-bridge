@@ -1,0 +1,23 @@
+name: pbw-topup
+
+on:
+  workflow_dispatch:
+  # manual one-shot: append curated PBW wholesaler domains to the corpus
+
+permissions:
+  contents: write
+
+jobs:
+  topup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Append curated PBW wholesaler domains
+        env:
+          DATA_KEY: ${{ secrets.DATA_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python pbw_topup.py
