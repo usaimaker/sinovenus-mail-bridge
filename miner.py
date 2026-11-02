@@ -90,18 +90,17 @@ def load_blob(path, default):
         return default
     try:
         d = json.loads(gh(f"https://api.github.com/repos/{REPO}/contents/{path}"))
-        raw = base64.b64decode(xor(base64.b64decode(d["content"])))
+        raw = xor(base64.b64decode(d["content"]))            # file body is xor(json)
         return json.loads(raw.decode("utf-8"))
     except Exception as e:
-        print(f"load {path} failed: {type(e).__name__}")
+        print(f"load {path} failed: {type(e).__name__}: {e}")
         return default
 
 
 def save_blob(path, obj, msg):
     if not (REPO and TOKEN):
         return False
-    body_raw = base64.b64encode(xor(json.dumps(obj, ensure_ascii=False).encode()))
-    content = base64.b64encode(body_raw).decode()
+    content = base64.b64encode(xor(json.dumps(obj, ensure_ascii=False).encode())).decode()
     url = f"https://api.github.com/repos/{REPO}/contents/{path}"
     for attempt in range(5):
         try:
