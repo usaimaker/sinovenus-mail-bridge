@@ -1,0 +1,25 @@
+name: weekly-report
+
+on:
+  schedule:
+    - cron: '0 18 * * 0'          # 周一 02:00 BJT
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Send weekly health report
+        env:
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          DATA_KEY: ${{ secrets.DATA_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python weekly_report.py
