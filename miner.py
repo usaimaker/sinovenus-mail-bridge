@@ -249,6 +249,82 @@ def country_of(domain):
     return TLD_COUNTRY.get(tld, ("United States", "America/New_York"))
 
 
+def _wd_get(url, tries=5):
+    """Wikidata GET with retry (proxy/TLS can be flaky)."""
+    last = None
+    for i in range(tries):
+        try:
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "SinoVenusMailBot/1.0 (lead discovery; mail@sinovenusltd.com)",
+                "Accept": "application/json"})
+            return urllib.request.urlopen(req, timeout=30, context=ctx()).read()
+        except Exception as e:
+            last = e
+            time.sleep(2 + i)
+    raise last
+
+
+B2B_KW = ("distributor", "wholesale", "importer", "supplier", "exporter", "pet trade", "b2b")
+PET_KW = ("pet", "aquaculture", "aquarium", "fish", "ornamental", "reptile",
+          "animal feed", "koi", "terrarium", "veterinar", "bird", "livestock")
+
+
+def discover_wikidata(offset=0, max_new=150):
+    """Self-sustaining B2B lead discovery via Wikidata (bot-friendly, cloud-reachable).
+
+    Wikidata has no Cloudflare/JS wall and is reachable from GitHub Actions runners,
+    so this needs no search engine and no local dependency. We pull companies that
+    *have an official website* (P856) AND a pet/aquaculture context, then keep only
+    the B2B ones (distributor / wholesaler / importer / supplier / exporter) in
+    Python. Returns (candidates, next_offset) for resumable crawling.
+    """
+    import urllib.parse
+    out, seen = [], set()
+    while len(out) < max_new and offset < 50000:
+        q = (
+            "SELECT ?item ?website ?desc WHERE {"
+            "  ?item wdt:P856 ?website ."
+            "  ?item wdt:P31 ?inst . ?inst wdt:P279* wd:Q783794 ."
+            "  ?item schema:description ?desc ."
+            "  FILTER(lang(?desc)=\"en\")"
+            "  FILTER( CONTAINS(LCASE(?desc),\"pet\") || CONTAINS(LCASE(?desc),\"aquaculture\")"
+            "       || CONTAINS(LCASE(?desc),\"aquarium\") || CONTAINS(LCASE(?desc),\"fish\")"
+            "       || CONTAINS(LCASE(?desc),\"ornamental\") || CONTAINS(LCASE(?desc),\"reptile\")"
+            "       || CONTAINS(LCASE(?desc),\"animal feed\") || CONTAINS(LCASE(?desc),\"koi\")"
+            "       || CONTAINS(LCASE(?desc),\"terrarium\") || CONTAINS(LCASE(?desc),\"veterinar\")"
+            "       || CONTAINS(LCASE(?desc),\"bird\") || CONTAINS(LCASE(?desc),\"livestock\") )"
+            "} OFFSET %d LIMIT 100" % offset
+        )
+        try:
+            u = "https://query.wikidata.org/sparql?query=" + urllib.parse.quote(q) + "&format=json"
+            d = json.loads(_wd_get(u))
+        except Exception as e:
+            print("WIKIDATA query failed:", type(e).__name__, e)
+            break
+        rows = d.get("results", {}).get("bindings", [])
+        if not rows:
+            break
+        for r in rows:
+            desc = r.get("desc", {}).get("value", "").lower()
+            if not any(k in desc for k in B2B_KW):
+                continue
+            web = r["website"]["value"].lower()
+            dom = re.sub(r"^https?://", "", web).split("/")[0].split(":")[0]
+            if not dom or dom.endswith("wikidata.org") or dom.endswith("wikipedia.org") or dom in seen:
+                continue
+            # skip obvious retail / marketplace noise
+            if any(k in desc for k in ("retail", "pet store", "pet shop", "pet supermarket")):
+                continue
+            seen.add(dom)
+            out.append(dom)
+            if len(out) >= max_new:
+                break
+        offset += 200
+        if len(rows) < 200:
+            break
+    return out, offset
+
+
 def main():
     if not DATA_KEY:
         print("NO DATA_KEY - abort")
@@ -271,6 +347,25 @@ def main():
         mined = set(led.get("mined_domains", []) or [])
     except Exception:
         mined = set()
+
+    # ---- self-top-up: discover new B2B domains from Wikidata (cloud, no search engine) ----
+    try:
+        disc = load_blob("discover.b64", {"offset": 0})
+        cands, new_off = discover_wikidata(disc.get("offset", 0))
+        pool_doms = {p["email"].split("@")[-1].lower() for p in pool}
+        bounced = {b.lower() for b in (led.get("bounced", []) or [])}
+        existing = set(domains) | mined | pool_doms | bounced
+        fresh = [d for d in cands if d not in existing and "." in d and not d.endswith(".com.com")]
+        if fresh:
+            domains = list(domains) + fresh
+            save_blob("domains.b64", domains, f"discovery: +{len(fresh)} domains (corpus={len(domains)})")
+            disc["offset"] = new_off
+            save_blob("discover.b64", disc, f"discovery offset={new_off}")
+            print(f"DISCOVERY: +{len(fresh)} new B2B domains from Wikidata (corpus now {len(domains)})")
+        else:
+            print(f"DISCOVERY: no new domains this run (offset={disc.get('offset',0)})")
+    except Exception as e:
+        print("DISCOVERY skipped:", type(e).__name__, e)
 
     batch = [d for d in domains if d not in mined][:BATCH]
     print(f"batch={len(batch)} already_mined={len(mined)}")
