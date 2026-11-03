@@ -280,16 +280,19 @@ MFG_EXCL = ("manufacturer", "produces", "producer of", "maker of", "brand of",
             "fabricat", "brewing")
 
 
-# Industry+role full-text search phrases (Wikidata list=search).
+# Industry terms for Wikidata full-text search (simple, high-yield phrases that
+# actually appear in item descriptions/aliases -- role phrases like "distributor"
+# almost never match, so we keep the terms broad and let the miner gate decide).
 DISC_QUERIES = [
-    "pet food distributor", "pet food wholesaler", "pet products distributor",
-    "pet supplies wholesaler", "pet supplies importer", "aquarium wholesaler",
-    "aquatic products distributor", "ornamental fish supplier", "fish farm",
-    "aquaculture company", "hatchery", "reptile products distributor",
-    "terrarium products", "animal feed supplier", "veterinary products distributor",
-    "bird food supplier", "koi farm", "live food wholesale", "pet food importer",
-    "aquarium products company",
+    "pet food", "pet supplies", "pet products", "pet industry",
+    "aquarium", "aquaculture", "aquatic", "ornamental fish",
+    "fish farm", "hatchery", "reptile", "terrarium",
+    "animal feed", "koi", "veterinary", "bird food",
+    "live food", "pet wholesale", "aquarium fish", "fish farming",
 ]
+
+PER_QUERY_PAGES = 4        # don't let one prolific term eat the whole budget
+MAX_PAGES = 44             # overall safety cap per run
 
 
 def _mw(params):
@@ -306,11 +309,13 @@ def discover_wikidata(after="", max_new=150):
     scan -- even a single term took 24-46s and every OFFSET>0 or ORDER BY hit the
     60s server timeout, so it could never paginate. Instead we use
     action=query&list=search (Elasticsearch-backed, fast, supports sroffset) to find
-    items matching industry+role phrases, then wbgetentities to pull each item's
-    official website (P856). Retail stores and manufacturers are dropped by their
-    description; the miner's own site-content gate still makes the final call.
+    items matching industry phrases, then wbgetentities to pull each item's official
+    website (P856). Retail stores and manufacturers are dropped by their description;
+    the miner's own site-content gate still makes the final call.
 
-    `after` is a resumable cursor "query_index:sroffset" persisted in discover.b64.
+    Per-term page caps plus "skip a term once it stops yielding new domains" keep one
+    prolific term from starving the rest. `after` is a resumable cursor
+    "query_index:sroffset" persisted in discover.b64.
     """
     import urllib.parse
 
@@ -323,11 +328,14 @@ def discover_wikidata(after="", max_new=150):
 
     out, seen = [], set()
     pages = 0
-    while len(out) < max_new and pages < 24:
+    per_q = 0
+    stale = 0
+    while len(out) < max_new and pages < MAX_PAGES:
         if qi >= len(DISC_QUERIES):
             qi, off = 0, 0          # wrap for the next cycle
             break
         term = DISC_QUERIES[qi]
+        before = len(out)
         try:
             d = _mw({"action": "query", "list": "search", "srsearch": term,
                      "srlimit": "50", "sroffset": str(off), "srnamespace": "0",
@@ -336,6 +344,8 @@ def discover_wikidata(after="", max_new=150):
             print("SEARCH failed '%s' off=%d: %s %s" % (term, off, type(e).__name__, e))
             qi += 1
             off = 0
+            per_q = 0
+            stale = 0
             pages += 1
             continue
         hits = (d.get("query", {}) or {}).get("search", []) or []
@@ -373,11 +383,16 @@ def discover_wikidata(after="", max_new=150):
                     out.append(dom)
             except Exception as e:
                 print("ENTITIES failed '%s': %s %s" % (term, type(e).__name__, e))
-        print("SEARCH '%s' off=%d hits=%d kept=%d" % (term, off, len(hits), len(out)))
+        got_new = len(out) - before
+        print("SEARCH '%s' off=%d hits=%d new=%d total=%d" % (term, off, len(hits), got_new, len(out)))
         pages += 1
-        if len(hits) < 50:
+        per_q += 1
+        stale = stale + 1 if got_new == 0 else 0
+        if len(hits) < 50 or per_q >= PER_QUERY_PAGES or stale >= 2:
             qi += 1
             off = 0
+            per_q = 0
+            stale = 0
         else:
             off += 50
     next_after = "%d:%d" % (qi, off)
