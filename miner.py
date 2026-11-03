@@ -280,95 +280,109 @@ MFG_EXCL = ("manufacturer", "produces", "producer of", "maker of", "brand of",
             "fabricat", "brewing")
 
 
+# Industry+role full-text search phrases (Wikidata list=search).
+DISC_QUERIES = [
+    "pet food distributor", "pet food wholesaler", "pet products distributor",
+    "pet supplies wholesaler", "pet supplies importer", "aquarium wholesaler",
+    "aquatic products distributor", "ornamental fish supplier", "fish farm",
+    "aquaculture company", "hatchery", "reptile products distributor",
+    "terrarium products", "animal feed supplier", "veterinary products distributor",
+    "bird food supplier", "koi farm", "live food wholesale", "pet food importer",
+    "aquarium products company",
+]
+
+
+def _mw(params):
+    """Call the Wikidata MediaWiki API (fast full-text search + entity fetch)."""
+    import urllib.parse
+    u = "https://www.wikidata.org/w/api.php?" + urllib.parse.urlencode(params)
+    return json.loads(_wd_get(u, tries=3, timeout=25))
+
+
 def discover_wikidata(after="", max_new=150):
-    """Self-sustaining lead discovery via Wikidata using KEYSET pagination.
+    """Self-sustaining lead discovery via Wikidata's full-text SEARCH API.
 
-    OFFSET pagination times out server-side for this heavy CONTAINS filter (every
-    OFFSET>0 returned a read timeout), so we page by entity IRI instead:
-    ORDER BY ?item with FILTER(STR(?item) > last_iri). `after` is the last IRI seen,
-    persisted in discover.b64; empty means "start from the beginning". Reaching the
-    last page wraps back to "" so newly-added entities are picked up next cycle.
+    SPARQL was a dead end here: FILTER(CONTAINS(LCASE(?desc),...)) is a full table
+    scan -- even a single term took 24-46s and every OFFSET>0 or ORDER BY hit the
+    60s server timeout, so it could never paginate. Instead we use
+    action=query&list=search (Elasticsearch-backed, fast, supports sroffset) to find
+    items matching industry+role phrases, then wbgetentities to pull each item's
+    official website (P856). Retail stores and manufacturers are dropped by their
+    description; the miner's own site-content gate still makes the final call.
 
-    No Cloudflare/JS wall, reachable from GitHub Actions runners, so this needs no
-    search engine. We pull entities with an official website (P856) plus a
-    pet/aquaculture/feed context, then drop retail stores and manufacturers in
-    Python. B2B-ish descriptions (distributor/wholesale/...) are ranked first; the
-    miner's own site-content gate still makes the final call.
+    `after` is a resumable cursor "query_index:sroffset" persisted in discover.b64.
     """
     import urllib.parse
+
     if max_new <= 0:
         return [], after
-    tier_a, tier_b, seen = [], [], set()
+    try:
+        qi, off = [int(x) for x in (str(after) or "0:0").split(":")]
+    except Exception:
+        qi, off = 0, 0
+
+    out, seen = [], set()
     pages = 0
-    fails = 0
-    cur_after = after or ""
-    while (len(tier_a) + len(tier_b)) < max_new and pages < 30:
-        after_clause = ('FILTER(STR(?item) > "%s") ' % cur_after) if cur_after else ""
-        q = (
-            "SELECT ?item ?website ?desc WHERE {"
-            "  ?item wdt:P856 ?website ."
-            "  ?item schema:description ?desc ."
-            "  FILTER(lang(?desc)=\"en\")"
-            "  " + after_clause +
-            "  FILTER( CONTAINS(LCASE(?desc),\"pet food\") || CONTAINS(LCASE(?desc),\"pet supplies\")"
-            "       || CONTAINS(LCASE(?desc),\"pet products\") || CONTAINS(LCASE(?desc),\"pet industry\")"
-            "       || CONTAINS(LCASE(?desc),\"pet care\") || CONTAINS(LCASE(?desc),\"aquarium\")"
-            "       || CONTAINS(LCASE(?desc),\"aquaculture\") || CONTAINS(LCASE(?desc),\"aquatic\")"
-            "       || CONTAINS(LCASE(?desc),\"ornamental fish\") || CONTAINS(LCASE(?desc),\"fish farm\")"
-            "       || CONTAINS(LCASE(?desc),\"hatchery\") || CONTAINS(LCASE(?desc),\"reptile\")"
-            "       || CONTAINS(LCASE(?desc),\"terrarium\") || CONTAINS(LCASE(?desc),\"animal feed\")"
-            "       || CONTAINS(LCASE(?desc),\"koi\") || CONTAINS(LCASE(?desc),\"veterinary\")"
-            "       || CONTAINS(LCASE(?desc),\"bird food\") || CONTAINS(LCASE(?desc),\"live food\") )"
-            "} ORDER BY ?item LIMIT 100"
-        )
+    while len(out) < max_new and pages < 24:
+        if qi >= len(DISC_QUERIES):
+            qi, off = 0, 0          # wrap for the next cycle
+            break
+        term = DISC_QUERIES[qi]
         try:
-            u = "https://query.wikidata.org/sparql?query=" + urllib.parse.quote(q) + "&format=json"
-            d = json.loads(_wd_get(u))
+            d = _mw({"action": "query", "list": "search", "srsearch": term,
+                     "srlimit": "50", "sroffset": str(off), "srnamespace": "0",
+                     "format": "json"})
         except Exception as e:
-            print("WIKIDATA query failed at after=%s : %s %s" % (cur_after[-14:] or "START", type(e).__name__, e))
-            fails += 1
-            if fails >= 3:
-                print("WIKIDATA: consecutive failures, stopping this cycle")
-                break
-            cur_after = cur_after or "http://www.wikidata.org/entity/Q0"
+            print("SEARCH failed '%s' off=%d: %s %s" % (term, off, type(e).__name__, e))
+            qi += 1
+            off = 0
+            pages += 1
             continue
-        fails = 0
-        rows = d.get("results", {}).get("bindings", [])
-        print(f"WIKIDATA after={(cur_after[-12:] or 'START')} rows={len(rows)}")
-        if not rows:
-            cur_after = ""          # end reached -> wrap for next cycle
-            break
-        for r in rows:
-            item = (r.get("item", {}).get("value", "") or "")
-            if item:
-                cur_after = item
-            desc = (r.get("desc", {}).get("value", "") or "").lower()
-            web = (r.get("website", {}).get("value", "") or "").lower()
-            dom = re.sub(r"^https?://", "", web).split("/")[0].split(":")[0].strip(".")
-            if dom.startswith("www."):
-                dom = dom[4:]
-            if not dom or "." not in dom or dom in seen:
-                continue
-            if dom.endswith("wikidata.org") or dom.endswith("wikipedia.org"):
-                continue
-            if not any(k in desc for k in IND_TERMS):
-                continue                      # not in our industry
-            if any(k in desc for k in RETAIL_EXCL):
-                continue                      # pure retail store
-            if any(k in desc for k in MFG_EXCL):
-                continue                      # manufacturer / competitor
-            seen.add(dom)
-            if any(k in desc for k in B2B_TERMS):
-                tier_a.append(dom)
-            else:
-                tier_b.append(dom)
+        hits = (d.get("query", {}) or {}).get("search", []) or []
+        ids = [h.get("title", "") for h in hits if str(h.get("title", "")).startswith("Q")]
+        if ids:
+            try:
+                ent = _mw({"action": "wbgetentities", "ids": "|".join(ids),
+                           "props": "claims|descriptions", "languages": "en",
+                           "format": "json"})
+                for qid, e in (ent.get("entities", {}) or {}).items():
+                    web = None
+                    for c in (e.get("claims", {}) or {}).get("P856", []) or []:
+                        try:
+                            web = c["mainsnak"]["datavalue"]["value"]
+                            if web:
+                                break
+                        except Exception:
+                            pass
+                    if not web:
+                        continue
+                    desc = (((e.get("descriptions", {}) or {}).get("en", {}) or {})
+                            .get("value", "") or "").lower()
+                    dom = re.sub(r"^https?://", "", web.lower()).split("/")[0].split(":")[0].strip(".")
+                    if dom.startswith("www."):
+                        dom = dom[4:]
+                    if not dom or "." not in dom or dom in seen:
+                        continue
+                    if dom.endswith("wikidata.org") or dom.endswith("wikipedia.org"):
+                        continue
+                    if any(k in desc for k in RETAIL_EXCL):
+                        continue
+                    if any(k in desc for k in MFG_EXCL):
+                        continue
+                    seen.add(dom)
+                    out.append(dom)
+            except Exception as e:
+                print("ENTITIES failed '%s': %s %s" % (term, type(e).__name__, e))
+        print("SEARCH '%s' off=%d hits=%d kept=%d" % (term, off, len(hits), len(out)))
         pages += 1
-        if len(rows) < 100:
-            cur_after = ""          # last page -> wrap
-            break
-    out = (tier_a + tier_b)[:max_new]
-    print(f"WIKIDATA tierA(B2B)={len(tier_a)} tierB(industry)={len(tier_b)} -> {len(out)} candidates, next_after={(cur_after[-12:] or 'START')}")
-    return out, cur_after
+        if len(hits) < 50:
+            qi += 1
+            off = 0
+        else:
+            off += 50
+    next_after = "%d:%d" % (qi, off)
+    print("SEARCH total=%d candidates, next=%s" % (len(out), next_after))
+    return out[:max_new], next_after
 
 
 def main():
