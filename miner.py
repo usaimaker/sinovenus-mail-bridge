@@ -424,6 +424,9 @@ def main():
         mined = set(led.get("mined_domains", []) or [])
     except Exception:
         mined = set()
+    # persistent mined history in its own blob (never write ledger.json: the sender
+    # owns that file and a concurrent write would clobber sent_ids)
+    mined |= set(load_blob("mined.b64", []) or [])
 
     # ---- self-top-up: discover new pet/aquatic/feed company domains from Wikidata ----
     try:
@@ -489,6 +492,7 @@ def main():
     remaining = [d for d in domains if d not in mined]
     if tried:
         save_blob("domains.b64", remaining, f"miner: consumed {tried} domains ({len(remaining)} left)")
+        save_blob("mined.b64", sorted(mined), f"miner: mined history total {len(mined)}")
     print(f"corpus remaining={len(remaining)} pool={len(pool)}")
     return 0
 
