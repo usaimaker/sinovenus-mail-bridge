@@ -280,19 +280,16 @@ MFG_EXCL = ("manufacturer", "produces", "producer of", "maker of", "brand of",
             "fabricat", "brewing")
 
 
-# Industry terms for Wikidata full-text search (simple, high-yield phrases that
-# actually appear in item descriptions/aliases -- role phrases like "distributor"
-# almost never match, so we keep the terms broad and let the miner gate decide).
+# Industry terms for Wikidata full-text search, ordered best-quality first.
 DISC_QUERIES = [
-    "pet food", "pet supplies", "pet products", "pet industry",
-    "aquarium", "aquaculture", "aquatic", "ornamental fish",
-    "fish farm", "hatchery", "reptile", "terrarium",
-    "animal feed", "koi", "veterinary", "bird food",
-    "live food", "pet wholesale", "aquarium fish", "fish farming",
+    "pet food", "aquarium", "fish farm", "reptile", "koi",
+    "terrarium", "animal feed", "aquatic", "ornamental fish", "hatchery",
+    "bird food", "live food", "pet supplies", "pet products", "pet industry",
+    "aquaculture", "fish farming", "aquarium fish", "pet wholesale", "veterinary",
 ]
 
-PER_QUERY_PAGES = 4        # don't let one prolific term eat the whole budget
-MAX_PAGES = 44             # overall safety cap per run
+MAX_PAGES = 60             # overall page budget per run
+EMPTY_SKIP = 3             # move on after this many consecutive no-new pages
 
 
 def _mw(params):
@@ -305,17 +302,18 @@ def _mw(params):
 def discover_wikidata(after="", max_new=150):
     """Self-sustaining lead discovery via Wikidata's full-text SEARCH API.
 
-    SPARQL was a dead end here: FILTER(CONTAINS(LCASE(?desc),...)) is a full table
-    scan -- even a single term took 24-46s and every OFFSET>0 or ORDER BY hit the
-    60s server timeout, so it could never paginate. Instead we use
-    action=query&list=search (Elasticsearch-backed, fast, supports sroffset) to find
-    items matching industry phrases, then wbgetentities to pull each item's official
-    website (P856). Retail stores and manufacturers are dropped by their description;
-    the miner's own site-content gate still makes the final call.
+    SPARQL was a dead end: FILTER(CONTAINS(LCASE(?desc),...)) is a full table scan
+    (24-46s even for one term; every OFFSET>0 / ORDER BY hit the 60s timeout), so it
+    could never paginate. Instead we use action=query&list=search (Elasticsearch,
+    fast, supports sroffset) to find items matching industry terms, then
+    wbgetentities to pull each item's official website (P856). Retail stores and
+    manufacturers are dropped by description; the miner's site gate decides finally.
 
-    Per-term page caps plus "skip a term once it stops yielding new domains" keep one
-    prolific term from starving the rest. `after` is a resumable cursor
-    "query_index:sroffset" persisted in discover.b64.
+    Depth matters more than breadth: we keep digging into the current term (sroffset
+    persists across runs via the `after` cursor) instead of only ever reading the
+    first page of every term, which would make replenishment a one-time boost. A term
+    is only abandoned once it runs out of hits or yields EMPTY_SKIP barren pages in a
+    row. Cursor format: "query_index:sroffset".
     """
     import urllib.parse
 
@@ -328,11 +326,10 @@ def discover_wikidata(after="", max_new=150):
 
     out, seen = [], set()
     pages = 0
-    per_q = 0
-    stale = 0
+    empty = 0
     while len(out) < max_new and pages < MAX_PAGES:
         if qi >= len(DISC_QUERIES):
-            qi, off = 0, 0          # wrap for the next cycle
+            qi, off = 0, 0          # whole list swept -> wrap for next cycle
             break
         term = DISC_QUERIES[qi]
         before = len(out)
@@ -342,11 +339,10 @@ def discover_wikidata(after="", max_new=150):
                      "format": "json"})
         except Exception as e:
             print("SEARCH failed '%s' off=%d: %s %s" % (term, off, type(e).__name__, e))
-            qi += 1
-            off = 0
-            per_q = 0
-            stale = 0
+            off += 50
             pages += 1
+            if pages >= MAX_PAGES:
+                break
             continue
         hits = (d.get("query", {}) or {}).get("search", []) or []
         ids = [h.get("title", "") for h in hits if str(h.get("title", "")).startswith("Q")]
@@ -386,15 +382,17 @@ def discover_wikidata(after="", max_new=150):
         got_new = len(out) - before
         print("SEARCH '%s' off=%d hits=%d new=%d total=%d" % (term, off, len(hits), got_new, len(out)))
         pages += 1
-        per_q += 1
-        stale = stale + 1 if got_new == 0 else 0
-        if len(hits) < 50 or per_q >= PER_QUERY_PAGES or stale >= 2:
-            qi += 1
+        empty = empty + 1 if got_new == 0 else 0
+        if len(hits) < 50:
+            qi += 1                 # term exhausted
             off = 0
-            per_q = 0
-            stale = 0
+            empty = 0
+        elif empty >= EMPTY_SKIP:
+            qi += 1                 # barren stretch -> next term (deeper later)
+            off = 0
+            empty = 0
         else:
-            off += 50
+            off += 50               # keep digging this term
     next_after = "%d:%d" % (qi, off)
     print("SEARCH total=%d candidates, next=%s" % (len(out), next_after))
     return out[:max_new], next_after
