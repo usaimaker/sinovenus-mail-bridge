@@ -295,6 +295,7 @@ def discover_wikidata(offset=0, max_new=150):
         return [], offset
     tier_a, tier_b, seen = [], [], set()
     pages = 0
+    fails = 0
     while (len(tier_a) + len(tier_b)) < max_new and offset < 3000 and pages < 30:
         q = (
             "SELECT ?item ?website ?desc WHERE {"
@@ -316,8 +317,15 @@ def discover_wikidata(offset=0, max_new=150):
             u = "https://query.wikidata.org/sparql?query=" + urllib.parse.quote(q) + "&format=json"
             d = json.loads(_wd_get(u))
         except Exception as e:
-            print("WIKIDATA query failed:", type(e).__name__, e)
-            break
+            # skip the slow/failed page instead of stalling on it forever
+            print("WIKIDATA query failed at offset", offset, ":", type(e).__name__, e)
+            offset += 100
+            fails += 1
+            if fails >= 4:
+                print("WIKIDATA: too many consecutive failures, stopping")
+                break
+            continue
+        fails = 0
         rows = d.get("results", {}).get("bindings", [])
         print(f"WIKIDATA offset={offset} rows={len(rows)}")
         if not rows:
