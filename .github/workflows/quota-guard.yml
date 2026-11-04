@@ -1,0 +1,50 @@
+name: quota-guard
+
+on:
+  schedule:
+    - cron: '30 12 * * *'      # 20:30 BJT daily, after the day's sends are done
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '1 = diagnose only, write nothing'
+        required: false
+        default: '1'
+
+permissions:
+  contents: write
+
+# fully isolated: never competes with the sender chain or the replenisher
+concurrency:
+  group: quota-guard
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install tzdata pynacl
+      - name: Fill daily quota gaps
+        env:
+          DATA_KEY: ${{ secrets.DATA_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+          SCHEDULE_B64_1: ${{ secrets.SCHEDULE_B64_1 }}
+          SCHEDULE_B64_2: ${{ secrets.SCHEDULE_B64_2 }}
+          SCHEDULE_B64_3: ${{ secrets.SCHEDULE_B64_3 }}
+          SCHEDULE_B64_4: ${{ secrets.SCHEDULE_B64_4 }}
+          SCHEDULE_B64_5: ${{ secrets.SCHEDULE_B64_5 }}
+          SCHEDULE_B64_6: ${{ secrets.SCHEDULE_B64_6 }}
+          SCHEDULE_B64_7: ${{ secrets.SCHEDULE_B64_7 }}
+          SCHEDULE_B64_8: ${{ secrets.SCHEDULE_B64_8 }}
+          SCHEDULE_B64_9: ${{ secrets.SCHEDULE_B64_9 }}
+          SCHEDULE_B64_10: ${{ secrets.SCHEDULE_B64_10 }}
+          DAILY_CAP: '20'
+          LOOKAHEAD_DAYS: '7'
+          MAX_FILL: '40'
+          DRY_RUN: ${{ github.event.inputs.dry_run || '0' }}
+        run: python quota_guard.py
