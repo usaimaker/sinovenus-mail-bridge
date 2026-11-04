@@ -2,7 +2,10 @@ name: quota-guard
 
 on:
   schedule:
-    - cron: '30 12 * * *'      # 20:30 BJT daily, after the day's sends are done
+    # SAFETY-NET ONLY. The real plan is built by lead-miner's "plan" job right
+    # after mining. This cron just re-checks plan completeness; on a healthy
+    # day it writes ZERO entries (idempotent). Cron time unchanged.
+    - cron: '30 12 * * *'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -13,9 +16,10 @@ on:
 permissions:
   contents: write
 
-# fully isolated: never competes with the sender chain or the replenisher
+# Shared with lead-miner's plan job so the two builders can never write the
+# schedule Secret at the same time. The sender chain uses its own group.
 concurrency:
-  group: quota-guard
+  group: schedule-plan
   cancel-in-progress: false
 
 jobs:
@@ -28,7 +32,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install tzdata pynacl
-      - name: Fill daily quota gaps
+      - name: Build front-loaded plan (fill entire runway)
         env:
           DATA_KEY: ${{ secrets.DATA_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -45,6 +49,8 @@ jobs:
           SCHEDULE_B64_10: ${{ secrets.SCHEDULE_B64_10 }}
           DAILY_CAP: '20'
           LOOKAHEAD_DAYS: '45'
-          MAX_FILL: '12'
+          # Place ALL qualified leads in one pass, not a rolling trickle.
+          # Real limit is the validated pool size; 300 is only a runaway guard.
+          MAX_FILL: '300'
           DRY_RUN: ${{ github.event.inputs.dry_run || '0' }}
         run: python quota_guard.py
