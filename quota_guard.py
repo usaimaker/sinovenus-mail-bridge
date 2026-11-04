@@ -160,6 +160,11 @@ def build_new(entries, fresh, per_bjt, existing, max_fill):
     today = now.date()
     start = today + datetime.timedelta(days=1)
     days = R.next_workdays(start, LOOKAHEAD_DAYS)
+    # Fill the EXISTING runway only. Extending it is schedule-replenish's job;
+    # creating half-filled new days here would leave ragged 4/20 tails and
+    # overlap with the replenisher's renumbering path.
+    last_planned = max(datetime.datetime.fromisoformat(e["bjt_send"]).date()
+                       for e in entries)
     ids = [int(m.group(1)) for e in entries
            for m in [re.fullmatch(r"sv(\d+)", str(e.get("id", "")))] if m]
     next_id = (max(ids) if ids else 0) + 1
@@ -180,6 +185,8 @@ def build_new(entries, fresh, per_bjt, existing, max_fill):
                 local_dt = datetime.datetime.combine(day, R.slot_time(seq), tzinfo=tz)
                 bjt_dt = local_dt.astimezone(BJT)
                 if bjt_dt.date() <= today:                        # never touch today/past
+                    continue
+                if bjt_dt.date() > last_planned:                  # never extend runway here
                     continue
                 dkey = bjt_dt.date().isoformat()                 # per_bjt keys are ISO strings
                 if per_bjt[dkey] >= DAILY_CAP:
@@ -247,18 +254,24 @@ def plan_health(entries, today, label):
     while d <= end:
         key = d.isoformat()
         n = per.get(key, 0)
-        if n < DAILY_CAP:
+        # Weekends are deliberately empty (iron rule: no weekend sends), so a
+        # 0/20 Saturday is NOT a gap. Only count a weekend as a gap if it
+        # already has entries (Gulf Sunday-Thursday working weeks).
+        weekend_rest = d.weekday() >= 5 and n == 0
+        flag = "OK" if n >= DAILY_CAP else ("WEEKEND" if weekend_rest else "SHORT")
+        if flag == "SHORT":
             short.append((key, n))
             missing += DAILY_CAP - n
-        rows.append((key, n))
+        rows.append((key, n, flag))
         d += datetime.timedelta(days=1)
     print(f"PLAN HEALTH [{label}] cap={DAILY_CAP}/BJT-day | future days={len(rows)} "
-          f"| short_days={len(short)} | missing_sends={missing}")
+          f"| short_workdays={len(short)} | missing_sends={missing} "
+          f"(~ = weekend, no sends by design)")
     for i in range(0, len(rows), 4):
         chunk = rows[i:i + 4]
         print("   " + "  ".join(
-            f"{k[5:]}:{n:>2}/{DAILY_CAP}{'' if n >= DAILY_CAP else '!'}"
-            for k, n in chunk))
+            f"{k[5:]}:{n:>2}/{DAILY_CAP}{'' if f == 'OK' else ('~' if f == 'WEEKEND' else '!')}"
+            for k, n, f in chunk))
     return short, missing
 
 
@@ -280,7 +293,7 @@ def main():
     if not short_before:
         print("PLAN COMPLETE: every future BJT day already at cap -> nothing to do")
         return 0
-    print(f"FRONT-LOAD TARGET: {len(short_before)} days short, {missing_before} sends to place")
+    print(f"FRONT-LOAD TARGET: {len(short_before)} workdays short, {missing_before} sends to place")
 
     pool = load_blob("pool.b64", [])
     fresh = usable_pool(pool, entries, bounced)
@@ -304,7 +317,7 @@ def main():
     short_after, missing_after = plan_health(merged, today, "AFTER")
     if short_after:
         left = len(pool) - len(new)
-        print(f"PLAN INCOMPLETE: {len(short_after)} future BJT days still short by "
+        print(f"PLAN INCOMPLETE: {len(short_after)} future workdays still short by "
               f"{missing_after} sends | remaining pool={left} -> next mining run fills them")
     else:
         print("PLAN COMPLETE: entire runway at cap, every send pre-composed and ready")
