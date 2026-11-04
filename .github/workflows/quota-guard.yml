@@ -44,7 +44,7 @@ jobs:
           SCHEDULE_B64_9: ${{ secrets.SCHEDULE_B64_9 }}
           SCHEDULE_B64_10: ${{ secrets.SCHEDULE_B64_10 }}
           DAILY_CAP: '20'
-          LOOKAHEAD_DAYS: '7'
-          MAX_FILL: '40'
+          LOOKAHEAD_DAYS: '45'
+          MAX_FILL: '12'
           DRY_RUN: ${{ github.event.inputs.dry_run || '0' }}
         run: python quota_guard.py
