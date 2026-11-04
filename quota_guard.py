@@ -129,7 +129,8 @@ def build_new(entries, fresh, per_bjt, existing, max_fill):
                 bjt_dt = local_dt.astimezone(BJT)
                 if bjt_dt.date() <= today:                        # never touch today/past
                     continue
-                if per_bjt[bjt_dt.date()] >= DAILY_CAP:
+                dkey = bjt_dt.date().isoformat()                 # per_bjt keys are ISO strings
+                if per_bjt[dkey] >= DAILY_CAP:
                     continue
                 if not slot_ok(bjt_dt, existing):
                     continue
@@ -140,7 +141,7 @@ def build_new(entries, fresh, per_bjt, existing, max_fill):
                             "bjt_send": bjt_dt.isoformat(), "local_send": local_dt.isoformat(),
                             "subject": R.build_subject(c, seg), "body": R.build_body(c, seg)})
                 next_id += 1
-                per_bjt[bjt_dt.date()] += 1
+                per_bjt[dkey] += 1
                 existing.setdefault(bjt_dt.date(), []).append(bjt_dt.hour * 60 + bjt_dt.minute)
                 existing[bjt_dt.date()].sort()
                 used.add(c["email"].lower())
@@ -164,6 +165,9 @@ def assert_safe(original, merged, new, sent_ids):
         assert sid in old_by_id, f"sent id {sid} missing"
         assert new_by_id.get(sid) == old_by_id[sid], f"sent id {sid} remapped -> duplicate send risk"
     assert len(new_by_id) == len(merged), "duplicate ids"
+    after = Counter(e["bjt_send"][:10] for e in merged)
+    over = {d: n for d, n in after.items() if n > DAILY_CAP}
+    assert not over, f"BJT day(s) above cap: {over}"
     emails = [e["email"].lower() for e in merged]
     doms = [e.split("@")[-1] for e in emails]
     assert len(set(emails)) == len(emails), "duplicate email"
