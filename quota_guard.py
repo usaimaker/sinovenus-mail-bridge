@@ -1,17 +1,25 @@
 # -*- coding: utf-8 -*-
-"""Daily-quota guard: keep every BJT working day at >= DAILY_CAP scheduled sends.
+"""Front-loaded plan builder: pre-build the ENTIRE runway at >= DAILY_CAP/day.
+
+This is NOT a "patch the gap at send time" tool. It runs right after mining has
+finished background-checking / validating new leads, and turns every qualified
+lead into a fully-composed, compliance-checked schedule entry for a FUTURE BJT
+day. By the time a send time arrives the plan is long finished -- the sender
+only has to deliver the already-written subject/body.
 
 ISOLATION CONTRACT (do not break):
-  * Never edits sender.py, cloud_replenish.py, bridge.yml or any env value.
+  * Never edits sender.py, cloud_replenish.py, bridge.yml or any business value.
   * Never renumbers existing entries -- ledger.sent_ids is an id->email map, so
     renumbering would cause already-sent emails to be sent again.
   * Only APPENDS new entries, with fresh ids above the current maximum.
   * Appended entries obey the same iron rules as the existing scheduler:
     recipient-local 08:00-11:59, no weekends (Gulf Fri/Sat), no BJT midnight
     cliff, >=8 min gap from any other send that BJT day, one contact per
-    company (email + domain + normalised company triple dedupe), no ISP boxes.
+    company (email + domain + normalised company triple dedupe), no ISP boxes,
+    zero-guessing (email must sit on the company's own domain).
   * Writes nothing unless EVERY pre-write assertion passes. DRY_RUN=1 only
-    prints the diagnosis.
+    prints the diagnosis and the full plan-health table.
+  * Idempotent: when every future day is already at cap, it writes nothing.
 """
 import os, json, gzip, base64, datetime, math, re, time
 from zoneinfo import ZoneInfo
@@ -23,8 +31,12 @@ from cloud_replenish import (REPO, PAT, GH, DATA_KEY, DAILY_CAP, CHUNK, BJT,
                              api, load_blob, save_blob, read_schedule, write_secrets)
 
 DRY_RUN = os.environ.get("DRY_RUN", "0") == "1"
-LOOKAHEAD_DAYS = int(os.environ.get("LOOKAHEAD_DAYS", "7"))
-MAX_FILL = int(os.environ.get("MAX_FILL", "40"))
+# Scan the whole runway (45 working days > current 34-day runway), not just a week.
+LOOKAHEAD_DAYS = int(os.environ.get("LOOKAHEAD_DAYS", "45"))
+# Safety ceiling only -- the real limit is the size of the validated pool.
+# A small rolling cap used to leave far-away days short; front-loading needs all
+# qualified leads placed in ONE pass.
+MAX_FILL = int(os.environ.get("MAX_FILL", "300"))
 MIN_GAP_MIN = 8
 
 ISP = {"gmail.com", "googlemail.com", "hotmail.com", "outlook.com", "live.com", "yahoo.com",
@@ -38,6 +50,15 @@ CORP = re.compile(r"[^a-z0-9]+")
 CORP_SUFFIX = {"ltd", "limited", "inc", "incorporated", "llc", "gmbh", "bv", "nv",
                "sa", "srl", "sarl", "ab", "as", "oy", "aps", "plc", "co", "company",
                "group", "holdings", "international", "trading", "import", "export"}
+
+# Iron rule: never pitch a manufacturer/competitor or a brand-owned branch office.
+# Exact-domain matching only (no fuzzy tokens) so genuine distributors are not killed.
+EXCLUDE_DOMAINS = {
+    "vitapol.pl", "iqi-petfood.com", "daro.co.za", "plantex.ch", "gibbon.se",
+    "vinhthinhbio.com", "vinhthinhbio.com.vn", "sera.de", "hagen.com",
+    "exo-terra.com", "zoomed.com", "repashy.com", "omegaone.com",
+    "hikari.com", "fluker.com",
+}
 
 
 def group_key(company):
@@ -55,32 +76,63 @@ def fetch_ledger():
 
 
 def usable_pool(pool, entries, bounced):
+    """Re-verify every pooled lead before it is allowed into the plan.
+
+    The miner already did the background check (official-site email, DNS, B2B
+    signals, country/timezone). This is the second gate before scheduling:
+    zero-guessing domain ownership, segment label present, exclusion list,
+    ISP/bounce/triple-dedupe and a real ZoneInfo lookup.
+    """
     taken_em = {e["email"].lower() for e in entries}
     taken_dom = {e["email"].split("@")[-1].lower() for e in entries}
     taken_grp = {group_key(e.get("company", "")) for e in entries}
     taken_grp.discard("")
     dead = {b.lower() for b in bounced}
     out, seen_dom, seen_grp = [], set(), set()
+    why = Counter()
     for c in pool:
         em = (c.get("email") or "").lower()
         if not em or "@" not in em:
+            why["no email"] += 1
             continue
         dom = em.split("@")[-1]
-        grp = group_key(c.get("company", ""))
+        company = (c.get("company") or "").lower().strip()
+        if company.startswith("www."):
+            company = company[4:]
+        grp = group_key(company)
         if dom in ISP or em in dead or em in taken_em or dom in taken_dom:
+            why["ISP/bounced/already planned"] += 1
             continue
         if dom in seen_dom or (grp and (grp in taken_grp or grp in seen_grp)):
+            why["domain/company duplicate"] += 1
+            continue
+        if any(dom == x or dom.endswith("." + x) for x in EXCLUDE_DOMAINS):
+            why["manufacturer/competitor"] += 1
+            continue
+        # zero-guessing: the address must sit on the company's own domain.
+        # The miner's fallback path can pick up a third-party domain from a
+        # contact page -- those are NOT acceptable without manual verification.
+        if company and not (dom == company or dom.endswith("." + company)
+                            or company.endswith("." + dom)):
+            why["email not on company domain"] += 1
+            continue
+        if not (c.get("pain") or "").strip():
+            why["no B-segment label"] += 1
             continue
         if not c.get("tz"):
+            why["no timezone"] += 1
             continue
         try:
             ZoneInfo(c["tz"])                      # iron rule: tz must really resolve
         except Exception:
+            why["bad timezone"] += 1
             continue
         seen_dom.add(dom)
         if grp:
             seen_grp.add(grp)
         out.append(c)
+    print("PRE-QUALIFY: pool=%d passed=%d filtered=%s" %
+          (len(pool), len(out), dict(why) if why else "{}"))
     return out
 
 
@@ -182,6 +234,34 @@ def assert_safe(original, merged, new, sent_ids):
     return nchunks
 
 
+def plan_health(entries, today, label):
+    """Print the FULL future plan (every BJT day until runway end), not just gaps."""
+    per = Counter(e["bjt_send"][:10] for e in entries)
+    if not per:
+        print(f"PLAN HEALTH [{label}]: EMPTY SCHEDULE")
+        return [], 0
+    last = max(per)
+    d = today + datetime.timedelta(days=1)
+    end = datetime.date.fromisoformat(last)
+    rows, short, missing = [], [], 0
+    while d <= end:
+        key = d.isoformat()
+        n = per.get(key, 0)
+        if n < DAILY_CAP:
+            short.append((key, n))
+            missing += DAILY_CAP - n
+        rows.append((key, n))
+        d += datetime.timedelta(days=1)
+    print(f"PLAN HEALTH [{label}] cap={DAILY_CAP}/BJT-day | future days={len(rows)} "
+          f"| short_days={len(short)} | missing_sends={missing}")
+    for i in range(0, len(rows), 4):
+        chunk = rows[i:i + 4]
+        print("   " + "  ".join(
+            f"{k[5:]}:{n:>2}/{DAILY_CAP}{'' if n >= DAILY_CAP else '!'}"
+            for k, n in chunk))
+    return short, missing
+
+
 def main():
     entries = read_schedule()
     if not entries:
@@ -194,20 +274,20 @@ def main():
 
     per_bjt = Counter(e["bjt_send"][:10] for e in entries)
     today = datetime.datetime.now(BJT).date()
-    gaps = [(d, n) for d, n in sorted(per_bjt.items())
-            if d >= today.isoformat() and n < DAILY_CAP]
     print(f"schedule={len(entries)} cap={DAILY_CAP}/BJT-day dry_run={DRY_RUN}")
     print(f"today={today} already_sent_today={ledger.get('daily', {}).get(str(today), 0)}")
-    print(f"future days below cap: {gaps[:12]}{' ...' if len(gaps) > 12 else ''}")
-    if not gaps:
-        print("all future BJT days already at/above cap -> nothing to do")
+    short_before, missing_before = plan_health(entries, today, "BEFORE")
+    if not short_before:
+        print("PLAN COMPLETE: every future BJT day already at cap -> nothing to do")
         return 0
+    print(f"FRONT-LOAD TARGET: {len(short_before)} days short, {missing_before} sends to place")
 
     pool = load_blob("pool.b64", [])
     fresh = usable_pool(pool, entries, bounced)
     print(f"pool={len(pool)} usable={len(fresh)}")
     if not fresh:
-        print("no usable pooled leads -> nothing written")
+        print("PLAN INCOMPLETE: no qualified pooled leads -> nothing written "
+              "(miner must background-check more domains first)")
         return 0
 
     existing = day_minutes(entries)
@@ -221,6 +301,14 @@ def main():
         return 0
 
     merged = entries + new                    # append only; NEVER sort / renumber
+    short_after, missing_after = plan_health(merged, today, "AFTER")
+    if short_after:
+        left = len(pool) - len(new)
+        print(f"PLAN INCOMPLETE: {len(short_after)} future BJT days still short by "
+              f"{missing_after} sends | remaining pool={left} -> next mining run fills them")
+    else:
+        print("PLAN COMPLETE: entire runway at cap, every send pre-composed and ready")
+
     try:
         nchunks = assert_safe(original, merged, new, sent_ids)
         print(f"PRE-WRITE CHECKS PASS (chunks={nchunks})")
