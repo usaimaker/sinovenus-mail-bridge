@@ -254,10 +254,11 @@ def plan_health(entries, today, label):
     while d <= end:
         key = d.isoformat()
         n = per.get(key, 0)
-        # Weekends are deliberately empty (iron rule: no weekend sends), so a
-        # 0/20 Saturday is NOT a gap. Only count a weekend as a gap if it
-        # already has entries (Gulf Sunday-Thursday working weeks).
-        weekend_rest = d.weekday() >= 5 and n == 0
+        # BJT Sat/Sun are never planning targets: they are either deliberately
+        # empty (iron rule) or hold a few cross-midnight overflow sends whose
+        # RECIPIENT local day is Friday (US West 09:00 -> BJT next-day 01:00).
+        # Either way, no 20/day quota is owed on a BJT weekend.
+        weekend_rest = d.weekday() >= 5
         flag = "OK" if n >= DAILY_CAP else ("WEEKEND" if weekend_rest else "SHORT")
         if flag == "SHORT":
             short.append((key, n))
