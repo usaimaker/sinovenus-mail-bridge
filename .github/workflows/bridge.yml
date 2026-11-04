@@ -48,6 +48,13 @@ jobs:
           SCHEDULE_B64_1: ${{ secrets.SCHEDULE_B64_1 }}
           SCHEDULE_B64_2: ${{ secrets.SCHEDULE_B64_2 }}
           SCHEDULE_B64_3: ${{ secrets.SCHEDULE_B64_3 }}
+          SCHEDULE_B64_4: ${{ secrets.SCHEDULE_B64_4 }}
+          SCHEDULE_B64_5: ${{ secrets.SCHEDULE_B64_5 }}
+          SCHEDULE_B64_6: ${{ secrets.SCHEDULE_B64_6 }}
+          SCHEDULE_B64_7: ${{ secrets.SCHEDULE_B64_7 }}
+          SCHEDULE_B64_8: ${{ secrets.SCHEDULE_B64_8 }}
+          SCHEDULE_B64_9: ${{ secrets.SCHEDULE_B64_9 }}
+          SCHEDULE_B64_10: ${{ secrets.SCHEDULE_B64_10 }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
           DAILY_CAP: '20'
