@@ -1,0 +1,56 @@
+name: plan-sanitize
+
+on:
+  schedule:
+    # 05:23 BJT daily, after lead-miner (01:30) and schedule-replenish (03:10).
+    # Normally a no-op: when the plan is clean it writes NOTHING at all.
+    - cron: '23 21 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '1 = diagnose only, write nothing'
+        required: false
+        default: '1'
+
+permissions:
+  contents: write
+
+# MUST share the single schedule-plan lock with quota-guard, lead-miner's plan
+# job and schedule-replenish: all of them write the same SCHEDULE_B64_* Secrets.
+concurrency:
+  group: schedule-plan
+  cancel-in-progress: false
+
+jobs:
+  sanitize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install tzdata pynacl
+      - name: Remove non-compliant pending rows and refill every gap
+        env:
+          DATA_KEY: ${{ secrets.DATA_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+          SCHEDULE_B64_1: ${{ secrets.SCHEDULE_B64_1 }}
+          SCHEDULE_B64_2: ${{ secrets.SCHEDULE_B64_2 }}
+          SCHEDULE_B64_3: ${{ secrets.SCHEDULE_B64_3 }}
+          SCHEDULE_B64_4: ${{ secrets.SCHEDULE_B64_4 }}
+          SCHEDULE_B64_5: ${{ secrets.SCHEDULE_B64_5 }}
+          SCHEDULE_B64_6: ${{ secrets.SCHEDULE_B64_6 }}
+          SCHEDULE_B64_7: ${{ secrets.SCHEDULE_B64_7 }}
+          SCHEDULE_B64_8: ${{ secrets.SCHEDULE_B64_8 }}
+          SCHEDULE_B64_9: ${{ secrets.SCHEDULE_B64_9 }}
+          SCHEDULE_B64_10: ${{ secrets.SCHEDULE_B64_10 }}
+          DAILY_CAP: '20'
+          LOOKAHEAD_DAYS: '45'
+          MAX_FILL: '300'
+          MIN_RUNWAY_DAYS: '5'
+          SANITIZE: '1'
+          EXTEND_RUNWAY: '0'
+          DRY_RUN: ${{ github.event.inputs.dry_run || '0' }}
+        run: python -u quota_guard.py
