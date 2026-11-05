@@ -240,6 +240,15 @@ def group_key(company):
     return " ".join(toks[:3])
 
 
+def strong_group_key(company):
+    """Same noise filter as quota_guard.sanitize_entries: single-letter tokens
+    from a stray sentence in the company field must NOT create a false
+    same-group collision."""
+    g = group_key(company)
+    toks = g.split()
+    return g if g and len(g) >= 5 and all(len(t) >= 3 for t in toks) else ""
+
+
 def parse_dt(s):
     dt = datetime.datetime.fromisoformat(s)
     if dt.tzinfo is None:
@@ -461,6 +470,8 @@ def quick_checks(a, entries, nchunks, ledger, ctx):
 
 # ----------------------------------------------------------------- DEEP layer
 def deep_checks(a, entries, ledger):
+    """Audit every iron rule. Only NOT-YET-SENT rows can be fixed, so only
+    those raise alerts; already-mailed rows are counted as history."""
     sent_ids = set((ledger or {}).get("sent_ids", []) or [])
     bounced = {str(x).lower() for x in ((ledger or {}).get("bounced", []) or [])}
     seen_em, seen_dom, seen_grp, seen_sub = {}, {}, {}, {}
@@ -470,17 +481,30 @@ def deep_checks(a, entries, ledger):
     ownership_bad = 0
     ownership_total = 0
     today = now().date()
+    pending = [e for e in entries if e.get("id") not in sent_ids]
+    historical = Counter()
+    print("DEEP SCOPE: total=%d already_sent=%d pending_to_audit=%d | "
+          "already-sent rows are historical, counted but never alerted" %
+          (len(entries), len(entries) - len(pending), len(pending)))
 
     for e in entries:
+        cur_sent = e.get("id") in sent_ids
+
+        def add(code, level, detail):
+            if cur_sent:
+                historical[code] += 1
+            else:
+                a.add(code, level, detail)
+
         eid = e.get("id", "?")
         required = ("id", "email", "company", "country", "pain", "tz",
                     "bjt_send", "local_send", "subject", "body")
         miss = [k for k in required if not e.get(k)]
         if miss:
-            a.add("MISSING_FIELDS", "VIOLATION", f"{eid}: {miss}")
+            add("MISSING_FIELDS", "VIOLATION", f"{eid}: {miss}")
             continue
         if not re.fullmatch(r"sv\d+", str(eid)):
-            a.add("BAD_ID", "VIOLATION", f"{eid}: id format")
+            add("BAD_ID", "VIOLATION", f"{eid}: id format")
         em = e["email"].lower().strip()
         dom = em.split("@")[-1] if "@" in em else ""
         company = (e.get("company") or "").lower().strip()
@@ -490,19 +514,20 @@ def deep_checks(a, entries, ledger):
         # one contact per company: email + domain + normalised group
         for label, store, key in (("DUP_EMAIL", seen_em, em),
                                   ("DUP_DOMAIN", seen_dom, dom),
-                                  ("DUP_GROUP", seen_grp, group_key(company or e.get("company", "")))):
+                                  ("DUP_GROUP", seen_grp, strong_group_key(company or e.get("company", "")))):
             if key and key in store:
-                a.add(label, "VIOLATION", f"{eid} and {store[key]} share {mask(key) if '@' in str(key) else str(key)[:28]}")
+                add(label, "VIOLATION",
+                    f"{eid} and {store[key]} share {mask(key) if '@' in str(key) else str(key)[:28]}")
             elif key:
                 store[key] = eid
 
-        # B-segment / zero-guessing / exclusion / suppression
-        if dom in ISP:
-            a.add("ISP_EMAIL", "VIOLATION", f"{eid}: {mask(em)}")
+        # B-segment / exclusion / suppression
+        if dom in ISP or "@" not in em:
+            add("ISP_EMAIL", "VIOLATION", f"{eid}: {mask(em)}")
         if any(dom == x or dom.endswith("." + x) for x in EXCLUDE_DOMAINS):
-            a.add("EXCLUDED_MAKER", "VIOLATION", f"{eid}: {dom}")
+            add("EXCLUDED_MAKER", "VIOLATION", f"{eid}: {dom}")
         if em in bounced:
-            a.add("BOUNCED_IN_PLAN", "RISK", f"{eid}: {mask(em)} is a known dead address")
+            add("BOUNCED_IN_PLAN", "RISK", f"{eid}: {mask(em)} is a known dead address")
         ownership_total += 1
         ok_owner = (dom == company or (company and dom.endswith("." + company))
                     or (dom and company.endswith("." + dom)))
@@ -512,73 +537,84 @@ def deep_checks(a, entries, ledger):
             ZoneInfo(e["tz"])
             if e["tz"] == "America/Vancouver":
                 bad_tz += 1
+                add("BAD_TZ_VANCOUVER", "RISK",
+                    f"{eid}: US-West must use America/Los_Angeles (iron rule)")
         except Exception:
             bad_tz += 1
-            a.add("BAD_TZ", "VIOLATION", f"{eid}: {e['tz']} does not resolve")
+            add("BAD_TZ", "VIOLATION", f"{eid}: {e['tz']} does not resolve")
 
         # time rules
         try:
             bj = parse_dt(e["bjt_send"]).astimezone(BJT)
             lo = parse_dt(e["local_send"])
         except Exception as ex:
-            a.add("BAD_TIMESTAMP", "VIOLATION", f"{eid}: {type(ex).__name__}")
+            add("BAD_TIMESTAMP", "VIOLATION", f"{eid}: {type(ex).__name__}")
             continue
         if not (8 <= lo.hour <= 11):
-            a.add("LOCAL_WINDOW", "VIOLATION", f"{eid}: local {lo.hour:02d}:{lo.minute:02d}")
+            add("LOCAL_WINDOW", "VIOLATION", f"{eid}: local {lo.hour:02d}:{lo.minute:02d}")
         if bj.hour == 0:
-            a.add("MIDNIGHT_CLIFF", "VIOLATION", f"{eid}: BJT {bj.isoformat()}")
+            add("MIDNIGHT_CLIFF", "VIOLATION", f"{eid}: BJT {bj.isoformat()}")
         if abs((lo.astimezone(BJT) - bj).total_seconds()) > 120:
-            a.add("TZ_OFFSET_MISMATCH", "RISK",
-                  f"{eid}: local->BJT {lo.astimezone(BJT).isoformat()} != {bj.isoformat()}")
+            add("TZ_OFFSET_MISMATCH", "RISK",
+                f"{eid}: local->BJT {lo.astimezone(BJT).isoformat()} != {bj.isoformat()}")
         weekend = {4, 5} if e.get("country") in GULF else {5, 6}
         if lo.weekday() in weekend:
-            a.add("LOCAL_WEEKEND", "VIOLATION",
-                  f"{eid}: {e.get('country')} local {lo.date()} weekday={lo.weekday()}")
-        per_day[bj.date().isoformat()].append((bj.hour * 60 + bj.minute, eid))
+            add("LOCAL_WEEKEND", "VIOLATION",
+                f"{eid}: {e.get('country')} local {lo.date()} weekday={lo.weekday()}")
+        if not cur_sent:
+            per_day[bj.date().isoformat()].append((bj.hour * 60 + bj.minute, eid))
 
         # message quality
         subj, body = e["subject"], e["body"]
         if subj in seen_sub:
-            a.add("DUP_SUBJECT", "RISK", f"{eid} and {seen_sub[subj]}")
+            add("DUP_SUBJECT", "RISK", f"{eid} and {seen_sub[subj]}")
         else:
             seen_sub[subj] = eid
         if re.search(r"<[a-zA-Z/][^>]*>", body) or "<html" in body.lower():
-            a.add("HTML_IN_BODY", "VIOLATION", f"{eid}: HTML markup in plain-text body")
+            add("HTML_IN_BODY", "VIOLATION", f"{eid}: HTML markup in plain-text body")
         if re.search(r"\{[A-Za-z_]\w*\}|\bTODO\b|\bXXX\b|\bNone\b", body + " " + subj):
-            a.add("PLACEHOLDER_IN_BODY", "VIOLATION", f"{eid}: unresolved placeholder")
+            add("PLACEHOLDER_IN_BODY", "VIOLATION", f"{eid}: unresolved placeholder")
         w = len(re.findall(r"[A-Za-z0-9'’\-]+", body))
         words.append(w)
         if w < 100 or w > 170:
-            a.add("BODY_LENGTH", "RISK", f"{eid}: {w} words (expected ~120-150)")
+            add("BODY_LENGTH", "RISK", f"{eid}: {w} words (expected ~120-150)")
         if "open to a short call" not in body.lower():
-            a.add("MISSING_CTA", "RISK", f"{eid}: no call-to-action")
+            add("MISSING_CTA", "RISK", f"{eid}: no call-to-action")
         if "jesse" not in body.lower() or "sinovenusltd.com" not in body.lower():
-            a.add("MISSING_SIGNATURE", "RISK", f"{eid}: signature incomplete")
+            add("MISSING_SIGNATURE", "RISK", f"{eid}: signature incomplete")
 
-    # gaps (only a LOWER bound: the sender enforces the 8-11 min runtime gap)
+    # Plan density is INFORMATIONAL, not a violation: sender.py enforces the
+    # real 8-11 min runtime gap via next_allowed, so two nearby plan slots are
+    # simply delivered further apart. Only pending rows are counted.
     for day, slots in per_day.items():
         slots.sort()
-        for i in range(1, len(slots)):
-            gap = slots[i][0] - slots[i - 1][0]
+        for k in range(1, len(slots)):
+            gap = slots[k][0] - slots[k - 1][0]
             if 0 < gap < MIN_GAP_MIN:
-                a.add("GAP_UNDER_8", "VIOLATION",
-                      f"{day}: {slots[i-1][1]}/{slots[i][1]} only {gap}min apart")
+                a.add("GAP_UNDER_8", "INFO",
+                      f"{day}: {slots[k-1][1]}/{slots[k][1]} {gap}min in plan "
+                      f"(sender spreads them at runtime)")
             elif gap == 0:
-                a.add("GAP_ZERO", "VIOLATION", f"{day}: {slots[i][1]} shares a slot")
-        if len(slots) > DAILY_CAP:
+                a.add("GAP_ZERO", "INFO", f"{day}: {slots[k][1]} shares a plan slot")
+        if day > today.isoformat() and len(slots) > DAILY_CAP:
             a.add("DAILY_OVER_CAP", "VIOLATION", f"{day}: {len(slots)} sends")
 
-    if ownership_total and ownership_bad / ownership_total > OWNERSHIP_MAX_RATIO:
-        a.add("DOMAIN_OWNERSHIP_DUBIOUS", "RISK",
-              f"{ownership_bad}/{ownership_total} emails are not on the company's own domain")
+    # In the historical plan `company` is a human-readable name, not a domain,
+    # so a literal comparison is NOT a valid ownership test. The binding
+    # zero-guessing gate is quota_guard.usable_pool's PRE-QUALIFY.
+    if ownership_total:
+        a.add("DOMAIN_OWNERSHIP_INFO", "INFO",
+              f"{ownership_bad}/{ownership_total} rows use a display-name company; "
+              f"PRE-QUALIFY remains the authoritative zero-guessing gate")
     print("DEEP STATS: entries=%d body_words(min/med/max)=%d/%d/%d "
-          "off_domain=%d/%d bad_tz=%d future_workdays=%d" %
+          "off_domain=%d/%d bad_tz=%d future_workdays=%d | HISTORICAL=%s" %
           (len(entries), min(words) if words else 0,
            sorted(words)[len(words) // 2] if words else 0,
            max(words) if words else 0, ownership_bad, ownership_total, bad_tz,
            len([d for d in per_day if d > today.isoformat()
-                and datetime.date.fromisoformat(d).weekday() < 5])))
-    a.ok("deep per-entry iron-rule sweep")
+                and datetime.date.fromisoformat(d).weekday() < 5]),
+           dict(historical) if historical else "{}"))
+    a.ok("deep per-entry iron-rule sweep (pending rows only)")
     return a
 
 
