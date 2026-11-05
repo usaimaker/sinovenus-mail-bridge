@@ -36,6 +36,10 @@ DRY_RUN = os.environ.get("DRY_RUN", "0") == "1"
 # existing behaviour (fill the existing runway, never create new dates).
 EXTEND = os.environ.get("EXTEND_RUNWAY", "0") == "1"
 MIN_RUNWAY_DAYS = int(os.environ.get("MIN_RUNWAY_DAYS", "5"))
+# SANITIZE=1: remove NON-COMPLIANT *pending* rows from the historical plan,
+# then refill every gap from the validated pool in the same run. Default OFF:
+# lead-miner plan / quota-guard / schedule-replenish behave exactly as before.
+SANITIZE = os.environ.get("SANITIZE", "0") == "1"
 # Scan the whole runway (45 working days > current 34-day runway), not just a week.
 LOOKAHEAD_DAYS = int(os.environ.get("LOOKAHEAD_DAYS", "45"))
 # Safety ceiling only -- the real limit is the size of the validated pool.
@@ -287,15 +291,81 @@ def plan_health(entries, today, label):
     return short, missing
 
 
+def strong_group_key(company):
+    """group_key() minus noise tokens (single letters etc.) to avoid killing
+    genuine distributors whose company field contains a stray sentence."""
+    g = group_key(company)
+    toks = g.split()
+    return g if g and len(g) >= 5 and all(len(t) >= 3 for t in toks) else ""
+
+
+def sanitize_entries(entries, sent_ids, bounced):
+    """Remove iron-rule violations from NOT-YET-SENT rows only.
+
+    Already-sent rows are IMMUTABLE: ledger.sent_ids is an id->email map, so
+    touching them (or renumbering anything) would re-send contacted leads.
+    Removed rows are replaced later in main() by fully compliant appends.
+    """
+    dead = {str(b).lower() for b in (bounced or [])}
+    seen_em, seen_dom, seen_grp = set(), set(), set()
+    removed = []
+    why = Counter()
+    for e in entries:
+        em = (e.get("email") or "").lower().strip()
+        dom = em.split("@")[-1] if "@" in em else ""
+        company = (e.get("company") or "").lower().strip()
+        if company.startswith("www."):
+            company = company[4:]
+        grp = strong_group_key(company)
+        sid = e.get("id")
+        if sid in sent_ids:                       # historical: occupy, never remove
+            seen_em.add(em); seen_dom.add(dom)
+            if grp: seen_grp.add(grp)
+            continue
+        reason = None
+        if "@" not in em or not dom or dom in ISP:
+            reason = "ISP/invalid email"
+        elif any(dom == x or dom.endswith("." + x) for x in EXCLUDE_DOMAINS):
+            reason = "manufacturer/competitor"
+        elif em in dead:
+            reason = "bounced address"
+        elif em in seen_em:
+            reason = "duplicate email"
+        elif dom in seen_dom:
+            reason = "duplicate domain"
+        elif grp and grp in seen_grp:
+            reason = "duplicate company/group"
+        elif e.get("tz") == "America/Vancouver":
+            reason = "non-approved US-West timezone"
+        if reason:
+            why[reason] += 1
+            removed.append((sid, reason))
+            continue                              # do not let a bad row occupy dedupe slots
+        seen_em.add(em); seen_dom.add(dom)
+        if grp: seen_grp.add(grp)
+    drop = {x[0] for x in removed}
+    kept = [e for e in entries if e.get("id") not in drop]
+    print("SANITIZE: checked=%d removed=%d kept=%d reasons=%s" %
+          (len(entries), len(removed), len(kept), dict(why) if why else "{}"))
+    for sid, reason in removed[:20]:
+        print("   drop %s (%s)" % (sid, reason))
+    return kept, removed
+
+
 def main():
     entries = read_schedule()
     if not entries:
         print("NO SCHEDULE READABLE - abort")
         return 1
-    original = deepcopy(entries)
     ledger = fetch_ledger()
     sent_ids = set(ledger.get("sent_ids", []))
     bounced = ledger.get("bounced", []) or []
+    if SANITIZE:
+        entries, removed = sanitize_entries(entries, sent_ids, bounced)
+        if not removed:
+            print("SANITIZE: no non-compliant pending rows -> nothing to do")
+            return 0
+    original = deepcopy(entries)
 
     per_bjt = Counter(e["bjt_send"][:10] for e in entries)
     today = datetime.datetime.now(BJT).date()
@@ -356,6 +426,14 @@ def main():
     except AssertionError as e:
         print(f"PRE-WRITE CHECK FAILED: {e} -> NOTHING WRITTEN")
         return 1
+
+    # Sanitising must never create an under-quota day. If the validated pool
+    # cannot refill every removed slot, keep the current plan and wait for the
+    # next mining run instead of writing a ragged runway.
+    if SANITIZE and short_after:
+        print("SANITIZE ABORT: %d future workdays still short after refill -> "
+              "NOTHING WRITTEN (no under-quota days, no pool consumed)" % len(short_after))
+        return 0
 
     if DRY_RUN:
         print("DRY RUN: no secret/blob written")
