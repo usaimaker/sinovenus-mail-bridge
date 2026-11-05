@@ -71,64 +71,136 @@ def api(url, data=None, method="GET", token=None, tries=4, timeout=30):
     raise last
 
 
+# ---------------- internal alerting: never go silent again ----------------
+_ALERTED = set()
+
+
+def alert(reason, detail):
+    """One out-of-band SMTP alert per reason per run.
+
+    Actions stdout is buffered for the whole 5.5h run, so a silent stop (bad
+    Secret chunks, SMTP down, ledger write failure, broken self-chain) used to
+    stay invisible for hours. These alerts go ONLY to alex@, never a customer,
+    and are deduplicated so a broken chain cannot spam the inbox.
+    """
+    if reason in _ALERTED:
+        return
+    _ALERTED.add(reason)
+    print(f"ALERT[{reason}]: {detail}")
+    if not SMTP_PASS:
+        print("ALERT: SMTP_PASS unavailable, email skipped")
+        return
+    try:
+        import email.utils as _eu
+        msg = (f"From: {SMTP_USER}\r\nTo: alex@sinovenusltd.com\r\n"
+               f"Subject: [SinoVenus][ALERT] {reason}\r\n"
+               f"Date: {_eu.format_datetime(now_bjt())}\r\n"
+               f"Content-Type: text/plain; charset=utf-8\r\n\r\n"
+               f"[SinoVenus][{reason}]\r\n"
+               f"Time (BJT): {now_bjt().isoformat()}\r\n"
+               f"Detail: {detail}\r\n"
+               f"Repo: {REPO}\r\n"
+               f"Action: inspect the mail-bridge run / schedule Secrets.\r\n").encode("utf-8")
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        s = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=ctx, timeout=45)
+        try:
+            s.login(SMTP_USER, SMTP_PASS)
+            s.sendmail(SMTP_USER, ["alex@sinovenusltd.com"], msg)
+        finally:
+            try:
+                s.quit()
+            except Exception:
+                pass
+        print("ALERT email sent to alex@")
+    except Exception as e:
+        print("ALERT email failed:", type(e).__name__, e)
+
+
 def load_schedule():
-    parts = []
+    """Rebuild the plan from Secret chunks. Refuse a partial/corrupt plan.
+
+    The old loop stopped at the first empty chunk: a hole in the middle
+    silently discarded the tail of the schedule while the sender kept mailing
+    from a truncated plan. Now any hole or bad gzip aborts with an alert.
+    """
+    parts = {}
     for i in range(1, 12):
         p = os.environ.get(f"SCHEDULE_B64_{i}")
-        if not p:
-            break
-        parts.append(p.strip())
+        if p and p.strip():
+            parts[i] = p.strip()
     if not parts:
-        return []
-    raw = gzip.decompress(base64.b64decode("".join(parts)))
-    return json.loads(raw).get("entries", [])
+        return None
+    last = max(parts)
+    holes = [i for i in range(1, last + 1) if i not in parts]
+    if holes:
+        print(f"SCHEDULE CHUNK HOLE: {holes} (last non-empty={last})")
+        return None
+    try:
+        blob = "".join(parts[i] for i in range(1, last + 1))
+        entries = json.loads(gzip.decompress(base64.b64decode(blob))).get("entries", [])
+    except Exception as e:
+        print(f"SCHEDULE CORRUPT: {type(e).__name__} {e}")
+        return None
+    if not isinstance(entries, list) or not entries:
+        print("SCHEDULE EMPTY after decode")
+        return None
+    return entries
 
 
 def fetch_ledger():
-    """authoritative ledger from the API; falls back to workspace copy."""
-    if REPO and GH_TOKEN:
-        try:
-            d = json.loads(api(f"https://api.github.com/repos/{REPO}/contents/ledger.json"))
-            led = json.loads(base64.b64decode(d["content"]).decode())
-            return led, d["sha"]
-        except Exception as e:
-            print("ledger api read failed, using local:", type(e).__name__)
-    p = os.path.join(os.environ.get("GITHUB_WORKSPACE", "."), "ledger.json")
-    try:
-        led = json.load(open(p, encoding="utf-8"))
-        return led, None
-    except Exception:
-        return {"sent_ids": [], "daily": {}, "updated": ""}, None
+    """Authoritative ledger from the API. NEVER fall back to the checkout copy.
+
+    That file can be hours stale; using it after an API outage would re-mail
+    leads that were already sent. A failed read aborts the run instead.
+    """
+    if not (REPO and GH_TOKEN):
+        raise RuntimeError("ledger API unavailable (no REPO/GITHUB_TOKEN)")
+    d = json.loads(api(f"https://api.github.com/repos/{REPO}/contents/ledger.json"))
+    led = json.loads(base64.b64decode(d["content"]).decode())
+    if not isinstance(led.get("sent_ids"), list):
+        raise RuntimeError("ledger.sent_ids missing or malformed")
+    return led, d["sha"]
 
 
 def push_ledger(ledger, sha=None):
-    if not (REPO and GH_TOKEN):
+    """Persist the ledger after EVERY send. Fall back GITHUB_TOKEN -> PAT.
+
+    Callers MUST treat None as fatal: mailing the next lead without a durable
+    ledger would make the following run send the same lead again.
+    """
+    if not REPO:
         return None
     url = f"https://api.github.com/repos/{REPO}/contents/ledger.json"
-    for attempt in range(5):
+    tokens = [t for t in (GH_TOKEN, PAT) if t]
+    for attempt in range(6):
         cur_sha = sha
         if cur_sha is None:
             try:
                 cur_sha = json.loads(api(url))["sha"]
             except Exception:
                 cur_sha = None
-        content = base64.b64encode(json.dumps(ledger, ensure_ascii=False).encode()).decode()
-        body = {"message": "ledger: tick", "content": content}
+        body = {"message": "ledger: tick",
+                "content": base64.b64encode(json.dumps(ledger, ensure_ascii=False).encode()).decode()}
         if cur_sha:
             body["sha"] = cur_sha
-        try:
-            r = json.loads(api(url, data=json.dumps(body).encode(), method="PUT", tries=1))
-            return r.get("content", {}).get("sha")
-        except urllib.error.HTTPError as he:
-            if he.code in (409, 422):
-                sha = None
-                time.sleep(1.5)
-                continue
-            print("ledger push err", he.code)
-            return None
-        except Exception as e:
-            print("ledger push err", type(e).__name__)
-            time.sleep(2)
+        raw = json.dumps(body).encode()
+        conflict = False
+        for tok in tokens:
+            try:
+                r = json.loads(api(url, data=raw, method="PUT", token=tok, tries=2))
+                return r.get("content", {}).get("sha")
+            except urllib.error.HTTPError as he:
+                if he.code in (409, 422):
+                    sha = None
+                    conflict = True
+                    break
+                print("ledger push err", he.code, "token", "PAT" if tok == PAT else "GITHUB_TOKEN")
+            except Exception as e:
+                print("ledger push err", type(e).__name__)
+        if not conflict:
+            time.sleep(1.5 + attempt)
     return None
 
 
@@ -207,6 +279,8 @@ def dispatch_next():
     """trigger the next run so the chain never dies"""
     if not (PAT and REPO):
         print("CHAIN: no PAT_TOKEN, cannot self-dispatch")
+        alert("CHAIN_NO_PAT", "PAT_TOKEN missing - self-chain cannot continue; "
+                              "only the throttled cron watchdog can restart it.")
         return False
     url = f"https://api.github.com/repos/{REPO}/actions/workflows/{WF_FILE}/dispatches"
     body = json.dumps({"ref": "main", "inputs": {"chain": "1"}}).encode()
@@ -216,8 +290,13 @@ def dispatch_next():
         return True
     except urllib.error.HTTPError as he:
         print("CHAIN dispatch failed", he.code, he.read()[:200])
+        alert("CHAIN_DISPATCH_FAILED", f"HTTP {he.code} on workflow dispatch - "
+                                       "PAT may be expired or rate-limited; "
+                                       "the cron watchdog is the only fallback.")
     except Exception as e:
         print("CHAIN dispatch failed", type(e).__name__, e)
+        alert("CHAIN_DISPATCH_FAILED", f"{type(e).__name__} on workflow dispatch - "
+                                       "the cron watchdog is the only fallback.")
     return False
 
 
@@ -239,12 +318,21 @@ def send_one(e):
 def main():
     entries = load_schedule()
     if not entries:
+        alert("SCHEDULE_UNREADABLE", "SCHEDULE_B64_* is empty, has a hole, or the "
+                                     "gzip stream is corrupt. Sender aborted and the "
+                                     "chain was NOT continued - fix the Secrets.")
         print("NO SCHEDULE LOADED - abort")
         return 1
     print(f"scheduler loaded: {len(entries)} entries | budget={BUDGET_MIN}min cap={DAILY_CAP}/day "
           f"gap={GAP_MIN}-{GAP_MAX}min chain={CHAIN}")
 
-    ledger, sha = fetch_ledger()
+    try:
+        ledger, sha = fetch_ledger()
+    except Exception as e:
+        alert("LEDGER_UNREADABLE", f"Cannot read the authoritative ledger "
+                                   f"({type(e).__name__}). Sender aborted rather than "
+                                   f"risk duplicate sends from a stale checkout copy.")
+        return 1
     sent = set(ledger.get("sent_ids", []))
     daily = ledger.get("daily", {}) or {}
     print(f"ledger: sent={len(sent)} days_tracked={len(daily)}")
@@ -353,6 +441,9 @@ def main():
             fails += 1
             print(f"FAIL {e['id']} {mask(e['email'])}: {type(ex).__name__} {str(ex)[:120]}")
             if fails >= 5:
+                alert("SMTP_FAILING", f"5 consecutive SMTP failures "
+                                      f"(last: {type(ex).__name__}). Run aborted; "
+                                      f"check SMTP_PASS and the exmail service.")
                 print("too many consecutive failures, aborting run")
                 break
             time.sleep(120)
@@ -364,9 +455,16 @@ def main():
         daily[today] = daily.get(today, 0) + 1
         ledger["daily"] = daily
         ledger["updated"] = now.isoformat()
-        sha = push_ledger(ledger, sha)
+        new_sha = push_ledger(ledger, sha)
+        if new_sha is None:
+            alert("LEDGER_WRITE_FAILED", f"Sent {e['id']} but the ledger could NOT be "
+                                         "persisted. Run stopped immediately so the next "
+                                         "run does not re-send it; chain NOT continued.")
+            print("FATAL: ledger write failed after a successful send - abort run")
+            return 1
+        sha = new_sha
         total_run += 1
-        print(f"SENT {e['id']} {mask(e['email'])} local={e['local_send'][11:16]} "
+        print(f"SENT {e['id']} {mask(e['email'])} local={(e.get('local_send') or '')[11:16]} "
               f"day_total={daily[today]} run_total={total_run}")
 
         gap = random.randint(GAP_MIN * 60, GAP_MAX * 60)
