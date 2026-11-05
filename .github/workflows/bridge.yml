@@ -39,7 +39,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CHAIN: ${{ github.event.inputs.chain || '0' }}
-        run: python guard.py
+          WF_FILE: 'bridge.yml'
+        run: python -u guard.py
 
       - name: Run sender (long chain loop)
         if: steps.guard.outcome == 'success'
@@ -63,4 +64,6 @@ jobs:
           RUN_BUDGET_MIN: '330'
           CHAIN_DISPATCH: '1'
           WF_FILE: 'bridge.yml'
-        run: python sender.py
+        # -u: unbuffered stdout. Without it a 5.5h run emits ZERO visible logs
+        # until it exits, making any live failure impossible to diagnose.
+        run: python -u sender.py
