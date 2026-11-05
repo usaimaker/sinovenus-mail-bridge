@@ -89,7 +89,8 @@ jobs:
               -H "Authorization: Bearer ${PAT_TOKEN}" \
               -H "Accept: application/vnd.github+json" \
               "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/compliance-audit.yml/dispatches" \
-              -d '{"ref":"main","inputs":{"deep":"1","dry_run":"0","probe":"1"}}'
+              -d '{"ref":"main","inputs":{"deep":"1","dry_run":"0","probe":"1"}}' \
+              || echo "extra sweep dispatch failed (non-fatal; main audit already done)"
           else
             echo "no extra sweep this run"
           fi
