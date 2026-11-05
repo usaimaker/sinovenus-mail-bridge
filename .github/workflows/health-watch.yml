@@ -1,0 +1,33 @@
+name: health-watch
+
+on:
+  schedule:
+    # independent of the sender chain: catch a silent stop within ~2h
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+# Isolated: never shares a lock with the sender or the planners.
+concurrency:
+  group: health-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Read-only health check with alerting
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          DAILY_CAP: '20'
+        run: python -u health_watch.py
