@@ -52,12 +52,16 @@ def gh(url, data=None, method="GET", tries=4):
     raise last
 
 
-def load_blob(path, default):
+def load_blob(path, default, strict=False):
+    """strict=True: a failed read must abort, never become an empty corpus
+    that save_blob would then write over the real domains.b64."""
     try:
         d = json.loads(gh(f"https://api.github.com/repos/{REPO}/contents/{path}"))
         return json.loads(xor(base64.b64decode(d["content"])).decode("utf-8"))
     except Exception as e:
         print("load", path, "failed:", type(e).__name__)
+        if strict:
+            raise RuntimeError(f"cannot read {path} safely - refusing to write it back")
         return default
 
 
@@ -95,8 +99,8 @@ def main():
     if not (REPO and TOKEN and DATA_KEY):
         print("missing env - abort")
         return 1
-    domains = load_blob("domains.b64", [])
-    pool = load_blob("pool.b64", [])
+    domains = load_blob("domains.b64", [], strict=True)
+    pool = load_blob("pool.b64", [], strict=True)
     print(f"corpus={len(domains)} pool={len(pool)}")
 
     # gather already-known domains to avoid duplicates
