@@ -39,12 +39,17 @@ def gh(url, data=None, method="GET", tries=4):
     raise last
 
 
-def load_blob(path, default):
+def load_blob(path, default, strict=False):
+    """strict=True for the big corpora: a failed read must not produce a
+    misleading 'corpus=0' weekly report. Small optional state blobs stay
+    lenient because they legitimately may not exist yet."""
     try:
         d = json.loads(gh(f"https://api.github.com/repos/{REPO}/contents/{path}"))
         return json.loads(xor(base64.b64decode(d["content"])).decode("utf-8"))
     except Exception as e:
         print("load", path, "failed:", type(e).__name__)
+        if strict:
+            raise RuntimeError(f"cannot read {path} safely - refusing to report wrong numbers")
         return default
 
 
@@ -107,8 +112,8 @@ def main():
     runway = led.get("runway", {})
     disc = led.get("wd_offset") or load_blob("discover.b64", {}).get("after", "") or "START"
 
-    corpus = load_blob("domains.b64", [])
-    pool = load_blob("pool.b64", [])
+    corpus = load_blob("domains.b64", [], strict=True)
+    pool = load_blob("pool.b64", [], strict=True)
 
     total_sent = len(sent)
     # last 7 calendar days in BJT
