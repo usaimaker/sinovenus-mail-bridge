@@ -4,12 +4,19 @@ on:
   schedule:
     - cron: '10 19 * * *'      # 03:10 BJT daily, after the miner has run
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '1 = diagnose only, write nothing'
+        required: false
+        default: '1'
 
 permissions:
   contents: write
 
+# MUST match lead-miner's plan job and quota-guard: all three write the same
+# SCHEDULE_B64_* Secrets. A separate group used to allow concurrent writes.
 concurrency:
-  group: schedule-replenish
+  group: schedule-plan
   cancel-in-progress: false
 
 jobs:
@@ -22,7 +29,11 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install tzdata pynacl
-      - name: Top up the schedule from the lead pool
+      # ONE compliant planner. cloud_replenish.py used to rebuild + RENUMBER the
+      # whole schedule here (re-sending already-contacted leads) and its daily
+      # cap never matched because of a date/string key mismatch. It is now a
+      # read-only diagnostic; quota_guard.py does append-only planning.
+      - name: Extend runway with the single compliant planner
         env:
           DATA_KEY: ${{ secrets.DATA_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -39,4 +50,8 @@ jobs:
           SCHEDULE_B64_10: ${{ secrets.SCHEDULE_B64_10 }}
           DAILY_CAP: '20'
           MIN_RUNWAY_DAYS: '5'
-        run: python cloud_replenish.py
+          LOOKAHEAD_DAYS: '45'
+          MAX_FILL: '300'
+          EXTEND_RUNWAY: '1'
+          DRY_RUN: ${{ github.event.inputs.dry_run || '0' }}
+        run: python -u quota_guard.py
