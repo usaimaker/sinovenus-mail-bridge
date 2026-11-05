@@ -143,14 +143,35 @@ def main():
                 problems.append(("CHAIN_STALLED",
                                  f"no live mail-bridge run; latest run started "
                                  f"{age_h:.1f}h ago (id {latest.get('id')})"))
-        for r in runs[:5]:
-            if r.get("conclusion") == "failure":
-                problems.append(("BRIDGE_RUN_FAILED",
-                                 f"run {r.get('id')} failed at {r.get('created_at')}"))
-                break
     except Exception as e:
         problems.append(("ACTIONS_UNREADABLE",
                          f"cannot read Actions runs: {type(e).__name__}"))
+
+    # 2b) ANY workflow failing in the last 24h (miner, plan, replenish,
+    #     weekly report, pbw topup, health watch itself). The old check only
+    #     looked at mail-bridge runs, so a dead planner stayed invisible.
+    try:
+        allruns = api(f"https://api.github.com/repos/{REPO}/actions/runs"
+                      f"?per_page=30").get("workflow_runs", [])
+        cutoff = (datetime.datetime.now(datetime.timezone.utc)
+                  - datetime.timedelta(hours=24))
+        bad = []
+        for r in allruns:
+            if r.get("conclusion") != "failure":
+                continue
+            try:
+                t = datetime.datetime.strptime(
+                    (r.get("created_at") or "")[:19], "%Y-%m-%dT%H:%M:%S").replace(
+                        tzinfo=datetime.timezone.utc)
+            except Exception:
+                continue
+            if t >= cutoff:
+                bad.append(f"{r.get('name')}#{r.get('id')}")
+        if bad:
+            problems.append(("WORKFLOW_RUN_FAILED",
+                             "recent failed runs: " + ", ".join(bad[:5])))
+    except Exception as e:
+        print("  failed-run scan skipped:", type(e).__name__)
 
     # 3) Secret chunk SET (values are write-only, but holes must be visible)
     try:
