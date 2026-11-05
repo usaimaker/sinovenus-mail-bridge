@@ -85,8 +85,17 @@ def xor(data: bytes) -> bytes:
     return bytes(b ^ k[i % len(k)] for i, b in enumerate(data))
 
 
-def load_blob(path, default):
+def load_blob(path, default, strict=False):
+    """strict=True makes a failed read FATAL.
+
+    Otherwise a transient API error or a wrong DATA_KEY yields an empty corpus
+    / pool, and the later save_blob would overwrite real data with that empty
+    list. Only the big corpora use strict; small optional cursor blobs may be
+    absent on a first run and stay lenient.
+    """
     if not (REPO and TOKEN):
+        if strict:
+            raise RuntimeError("no REPO/TOKEN - cannot read " + path + " safely")
         return default
     try:
         d = json.loads(gh(f"https://api.github.com/repos/{REPO}/contents/{path}"))
@@ -94,6 +103,8 @@ def load_blob(path, default):
         return json.loads(raw.decode("utf-8"))
     except Exception as e:
         print(f"load {path} failed: {type(e).__name__}: {e}")
+        if strict:
+            raise RuntimeError(f"cannot read {path} safely - refusing to write it back")
         return default
 
 
@@ -402,8 +413,10 @@ def main():
     if not DATA_KEY:
         print("NO DATA_KEY - abort")
         return 1
-    domains = load_blob("domains.b64", [])
-    pool = load_blob("pool.b64", [])
+    # STRICT: never let a failed decrypt/API read turn 14k domains or the
+    # validated lead pool into an empty list that gets written back later.
+    domains = load_blob("domains.b64", [], strict=True)
+    pool = load_blob("pool.b64", [], strict=True)
     print(f"corpus={len(domains)} pool={len(pool)}")
     if not domains:
         print("corpus empty - nothing to mine")
