@@ -1,8 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Cloud replenisher: when the schedule runway runs low, turn pooled leads into
-scheduled emails and publish the new SCHEDULE_B64_* secrets automatically.
+"""Cloud plumbing for the Sino Venus mail bridge.
 
-Runs in GitHub Actions (daily). Needs: SCHEDULE_B64_* env, DATA_KEY, PAT_TOKEN.
+This module owns the encrypted blob helpers and the SCHEDULE_B64_* Secret
+writer. It is NO LONGER a schedule planner: planning lives in quota_guard.py
+(append-only, pre-qualified, compliance-asserted). The old planner rebuilt and
+RENUMBERED the whole schedule, which would have re-sent already-contacted
+leads as soon as the runway ran low. See main() below.
+
+Runs in GitHub Actions. Needs: SCHEDULE_B64_* env, DATA_KEY, PAT_TOKEN.
 """
 import os, json, gzip, base64, datetime, urllib.request, urllib.error, time
 from zoneinfo import ZoneInfo
@@ -41,13 +46,21 @@ def xor(b):
     return bytes(x ^ k[i % len(k)] for i, x in enumerate(b))
 
 
-def load_blob(path, default):
+def load_blob(path, default, strict=False):
+    """Read an encrypted repo blob.
+
+    strict=True makes a read/decrypt failure fatal. Without it a wrong DATA_KEY
+    or a transient API error silently yields `default`, and a later save_blob
+    could overwrite a real pool/domain corpus with an empty one.
+    """
     try:
         d = json.loads(api(f"https://api.github.com/repos/{REPO}/contents/{path}"))
         raw = xor(base64.b64decode(d["content"]))            # file body is xor(json)
         return json.loads(raw.decode("utf-8"))
     except Exception as e:
         print(f"load {path}: {type(e).__name__}: {e}")
+        if strict:
+            raise RuntimeError(f"cannot read {path} safely - refusing to continue")
         return default
 
 
@@ -76,155 +89,137 @@ def save_blob(path, obj, msg):
 
 
 def read_schedule():
-    parts = []
+    """Rebuild the schedule from Secret chunks - never accept a partial set.
+
+    A hole in the middle of the chunk range (e.g. 1,2,4 present but 3 empty)
+    used to break the loop early and silently drop the tail of the plan. Now a
+    hole or a corrupt gzip stream is refused outright.
+    """
+    got = {}
     for i in range(1, 12):
         p = os.environ.get(f"SCHEDULE_B64_{i}")
-        if not p:
-            break
-        parts.append(p.strip())
-    if not parts:
+        if p and p.strip():
+            got[i] = p.strip()
+    if not got:
         return []
-    return json.loads(gzip.decompress(base64.b64decode("".join(parts)))).get("entries", [])
+    last = max(got)
+    holes = [i for i in range(1, last + 1) if i not in got]
+    if holes:
+        print(f"read_schedule: HOLE in chunk set {holes} (last non-empty={last}) "
+              f"-> refusing partial schedule")
+        return []
+    try:
+        blob = "".join(got[i] for i in range(1, last + 1))
+        return json.loads(gzip.decompress(base64.b64decode(blob))).get("entries", [])
+    except Exception as e:
+        print(f"read_schedule: schedule CORRUPT: {type(e).__name__} -> refusing partial schedule")
+        return []
+
+
+def _list_secret_names():
+    try:
+        sec = json.loads(api(f"https://api.github.com/repos/{REPO}/actions/secrets",
+                             token=PAT, tries=3))
+        return {s["name"] for s in sec.get("secrets", [])}
+    except Exception as e:
+        print("secret list failed:", type(e).__name__)
+        return None
 
 
 def write_secrets(entries):
+    """Publish the schedule as chunks 1..N.
+
+    GitHub Secrets are write-only: values cannot be read back, so we harden the
+    *shape* of the chunk set instead of pretending we can verify content:
+      1. remove stale high chunks FIRST and verify they are really gone (a
+         leftover chunk gets concatenated by the reader and corrupts gzip);
+      2. write every chunk in order with generous retries, never raising;
+      3. re-list secrets and require exactly 1..N with no extras.
+    Any doubt -> False. The caller must NOT consume the lead pool in that case.
+    """
     from nacl import encoding, public
-    raw = json.dumps({"entries": entries}, ensure_ascii=False).encode()
-    b64 = base64.b64encode(gzip.compress(raw, 9)).decode()
-    chunks = [b64[i:i + CHUNK] for i in range(0, len(b64), CHUNK)]
-    if len(chunks) > 10:
-        print("WARN too many chunks", len(chunks))
-        return False
-    pk = json.loads(api(f"https://api.github.com/repos/{REPO}/actions/secrets/public-key", token=PAT))
-    pub = public.PublicKey(pk["key"].encode(), encoding.Base64Encoder())
-    for i, c in enumerate(chunks, 1):
-        sealed = public.SealedBox(pub).encrypt(c.encode())
-        api(f"https://api.github.com/repos/{REPO}/actions/secrets/SCHEDULE_B64_{i}",
-            data=json.dumps({"encrypted_value": base64.b64encode(sealed).decode(),
-                             "key_id": pk["key_id"]}).encode(), method="PUT", token=PAT)
-        print(f"  SCHEDULE_B64_{i} <- {len(c)} chars")
-    # delete stale higher chunks
     try:
-        sec = json.loads(api(f"https://api.github.com/repos/{REPO}/actions/secrets", token=PAT))
-        have = {s["name"] for s in sec["secrets"]}
-        for extra in range(len(chunks) + 1, 11):
-            nm = f"SCHEDULE_B64_{extra}"
-            if nm in have:
-                api(f"https://api.github.com/repos/{REPO}/actions/secrets/{nm}", method="DELETE", token=PAT)
-                print(f"  removed stale {nm}")
-    except Exception:
-        pass
-    return True
+        raw = json.dumps({"entries": entries}, ensure_ascii=False).encode()
+        b64 = base64.b64encode(gzip.compress(raw, 9)).decode()
+        chunks = [b64[i:i + CHUNK] for i in range(0, len(b64), CHUNK)]
+        if not chunks or len(chunks) > 10:
+            print("write_secrets: bad chunk count", len(chunks))
+            return False
+
+        have = _list_secret_names()
+        if have is None:
+            print("write_secrets: cannot list secrets -> refusing to write")
+            return False
+
+        stale = [f"SCHEDULE_B64_{i}" for i in range(len(chunks) + 1, 11)
+                 if f"SCHEDULE_B64_{i}" in have]
+        for nm in stale:
+            api(f"https://api.github.com/repos/{REPO}/actions/secrets/{nm}",
+                method="DELETE", token=PAT, tries=4)
+            print("  removed stale", nm)
+        if stale:
+            have = _list_secret_names()
+            if have is None or any(nm in have for nm in stale):
+                print("write_secrets: stale chunks still present -> refusing to write")
+                return False
+
+        pk = json.loads(api(f"https://api.github.com/repos/{REPO}/actions/secrets/public-key",
+                            token=PAT, tries=4))
+        pub = public.PublicKey(pk["key"].encode(), encoding.Base64Encoder())
+        for i, c in enumerate(chunks, 1):
+            sealed = public.SealedBox(pub).encrypt(c.encode())
+            try:
+                api(f"https://api.github.com/repos/{REPO}/actions/secrets/SCHEDULE_B64_{i}",
+                    data=json.dumps({"encrypted_value": base64.b64encode(sealed).decode(),
+                                     "key_id": pk["key_id"]}).encode(),
+                    method="PUT", token=PAT, tries=6)
+            except Exception as e:
+                print(f"write_secrets: FAILED on chunk {i}/{len(chunks)}: {type(e).__name__} {e}")
+                print("write_secrets: PARTIAL WRITE - schedule may be INCONSISTENT; "
+                      "pool will NOT be consumed; health-watch will alert")
+                return False
+            print(f"  SCHEDULE_B64_{i} <- {len(c)} chars")
+
+        have = _list_secret_names()
+        if have is None:
+            print("write_secrets: post-write verification unavailable -> reporting failure")
+            return False
+        expect = {f"SCHEDULE_B64_{i}" for i in range(1, len(chunks) + 1)}
+        missing = expect - have
+        extra = {f"SCHEDULE_B64_{i}" for i in range(len(chunks) + 1, 11)} & have
+        if missing or extra:
+            print(f"write_secrets: VERIFY FAILED missing={sorted(missing)} extra={sorted(extra)}")
+            return False
+        print(f"write_secrets: VERIFIED chunks=1..{len(chunks)}")
+        return True
+    except Exception as e:
+        print("write_secrets: unexpected error -> NOTHING TRUSTED:", type(e).__name__, e)
+        return False
 
 
 def main():
+    """Read-only diagnostic. NEVER writes a Secret, a blob or a schedule id.
+
+    The historical planner in this module rebuilt the schedule, sorted it and
+    renumbered every sv-id. ledger.sent_ids is an id->email map, so that would
+    have re-mailed already-contacted leads the moment the runway fell below
+    MIN_RUNWAY days. Its daily-cap counter was also keyed by ISO strings while
+    lookups used date objects, so the cap never matched, and none of the
+    B-segment / gap / group-dedupe / compliance gates existed. Planning is now
+    done by quota_guard.py only, which is append-only and compliance-asserted.
+    """
     entries = read_schedule()
     if not entries:
-        print("no schedule readable")
+        print("DIAGNOSTIC: schedule NOT READABLE (chunk hole or corrupt gzip?)")
         return 1
-    print(f"current schedule: {len(entries)} entries")
-
-    # runway = distinct future days still holding unsent entries
     now = datetime.datetime.now(BJT)
     future = sorted({e["bjt_send"][:10] for e in entries
                      if datetime.datetime.fromisoformat(e["bjt_send"]) >= now})
-    print(f"runway: {len(future)} days, last {future[-1] if future else '-'}")
-    if len(future) >= MIN_RUNWAY:
-        print(f"runway OK (>= {MIN_RUNWAY} days), nothing to do")
-        return 0
-
-    pool = load_blob("pool.b64", [])
-    print(f"pool: {len(pool)} leads")
-    if not pool:
-        print("POOL EMPTY - miner needs to produce more leads")
-        return 0
-
-    taken_emails = {e["email"].lower() for e in entries}
-    taken_doms = {e["email"].split("@")[-1].lower() for e in entries}
-    ISP = {"gmail.com", "googlemail.com", "hotmail.com", "outlook.com", "live.com", "yahoo.com",
-           "ymail.com", "aol.com", "icloud.com", "me.com", "mail.com", "gmx.net", "gmx.de",
-           "web.de", "free.fr", "orange.fr", "wanadoo.fr", "tiscali.it", "libero.it", "virgilio.it",
-           "terra.com.br", "uol.com.br", "bol.com.br", "qq.com", "163.com", "126.com", "sina.com",
-           "naver.com", "daum.net", "hanmail.net", "yandex.ru", "mail.ru", "protonmail.com",
-           "msn.com", "mac.com", "btinternet.com", "prodigy.net.mx"}
-    fresh, seen = [], set()
-    dropped_isp = 0
-    for c in pool:
-        em = c["email"].lower()
-        dom = em.split("@")[-1]
-        if dom in ISP:
-            dropped_isp += 1
-            continue
-        if em in taken_emails or dom in taken_doms or dom in seen:
-            continue
-        seen.add(dom)
-        fresh.append(c)
-    print(f"usable pool leads: {len(fresh)} (dropped ISP mailboxes: {dropped_isp})")
-    if not fresh:
-        print("all pool leads already scheduled/contacted")
-        return 0
-
-    last_day = max(datetime.date.fromisoformat(e["local_send"][:10]) for e in entries)
-    start = last_day + datetime.timedelta(days=1)
-    while start.weekday() > 4:
-        start += datetime.timedelta(days=1)
-    days = R.next_workdays(start, 120)
-
-    per_bjt = Counter(e["bjt_send"][:10] for e in entries)
-    new_entries, di, queue = [], 0, list(fresh)
-    while queue and di < len(days):
-        day = days[di]
-        placed, i = 0, 0
-        while i < len(queue):
-            c = queue[i]
-            if c["country"] in R.GULF and day.weekday() == 4:
-                i += 1
-                continue
-            try:
-                tz = ZoneInfo(c["tz"])
-            except Exception:
-                queue.pop(i)
-                continue
-            seg = R.classify(c)
-            local_dt = datetime.datetime.combine(day, R.slot_time(placed), tzinfo=tz)
-            bjt_dt = local_dt.astimezone(BJT)
-            if bjt_dt.hour == 0 or per_bjt[bjt_dt.date()] >= DAILY_CAP:
-                i += 1
-                continue
-            new_entries.append({"email": c["email"], "company": c["company"],
-                                "country": c["country"], "pain": seg, "tz": c["tz"],
-                                "bjt_send": bjt_dt.isoformat(), "local_send": local_dt.isoformat(),
-                                "subject": R.build_subject(c, seg),
-                                "body": R.build_body(c, seg)})
-            per_bjt[bjt_dt.date()] += 1
-            queue.pop(i)
-            placed += 1
-            if placed >= DAILY_CAP:
-                break
-        di += 1
-
-    if not new_entries:
-        print("nothing new could be placed")
-        return 0
-
-    merged = entries + new_entries
-    merged.sort(key=lambda e: (e["bjt_send"], e["email"]))
-    for i, e in enumerate(merged, 1):
-        e["id"] = f"sv{i:04d}"
-
-    per_day = Counter(e["bjt_send"][:10] for e in merged)
-    em = [e["email"].lower() for e in merged]
-    dm = [x.split("@")[-1] for x in em]
-    print(f"\nmerged: {len(merged)} entries on {len(per_day)} days (max {max(per_day.values())}/day)")
-    print(f"unique emails {len(set(em))}/{len(em)} | domains {len(set(dm))}/{len(dm)}")
-    print(f"last day: {merged[-1]['bjt_send'][:10]}")
-
-    if not write_secrets(merged):
-        return 1
-    used = {e["email"].lower() for e in new_entries}
-    remaining = [c for c in pool if c["email"].lower() not in used]
-    save_blob("pool.b64", remaining, f"replenish: scheduled {len(new_entries)}, pool left {len(remaining)}")
-    print(f"pool after: {len(remaining)}")
+    workdays = [d for d in future if datetime.date.fromisoformat(d).weekday() < 5]
+    print(f"DIAGNOSTIC: schedule={len(entries)} entries | runway={len(workdays)} "
+          f"future workdays | last={future[-1] if future else '-'}")
+    print("DIAGNOSTIC: nothing written. schedule-replenish now runs quota_guard.py "
+          "with EXTEND_RUNWAY=1 (single compliant planner).")
     return 0
 
 
