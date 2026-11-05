@@ -1,0 +1,93 @@
+name: compliance-audit
+
+on:
+  schedule:
+    # Deliberately irregular BJT times (not on the hour): 07:37 / 11:19 /
+    # 15:53 / 20:07 / 23:41. Together with the random delay and the random
+    # deep pass below, self-checks are BOTH scheduled and unscheduled.
+    - cron: '37 23 * * *'      # 07:37 BJT
+    - cron: '19 3 * * *'       # 11:19 BJT
+    - cron: '53 7 * * *'       # 15:53 BJT
+    - cron: '7 12 * * *'       # 20:07 BJT
+    - cron: '41 15 * * *'      # 23:41 BJT
+  workflow_dispatch:
+    inputs:
+      deep:
+        description: '1 = force full deep sweep, 0 = quick only, auto = random'
+        required: false
+        default: 'auto'
+      dry_run:
+        description: '1 = print findings only, no email / no state write'
+        required: false
+        default: '0'
+      probe:
+        description: 'internal: 1 = unscheduled follow-up run'
+        required: false
+        default: '0'
+
+permissions:
+  contents: write      # only for audit_state.json (its own file)
+  actions: read
+
+# Fully isolated from the sender chain and from the plan writers.
+concurrency:
+  group: compliance-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install tzdata
+
+      # UNSCHEDULED timing: the actual inspection moment is not predictable.
+      - name: Random inspection delay
+        if: github.event.inputs.dry_run != '1'
+        run: |
+          D=$((RANDOM % 900))
+          echo "unscheduled self-check: sleeping ${D}s before inspection"
+          sleep "$D"
+
+      - name: Independent read-only compliance audit
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SCHEDULE_B64_1: ${{ secrets.SCHEDULE_B64_1 }}
+          SCHEDULE_B64_2: ${{ secrets.SCHEDULE_B64_2 }}
+          SCHEDULE_B64_3: ${{ secrets.SCHEDULE_B64_3 }}
+          SCHEDULE_B64_4: ${{ secrets.SCHEDULE_B64_4 }}
+          SCHEDULE_B64_5: ${{ secrets.SCHEDULE_B64_5 }}
+          SCHEDULE_B64_6: ${{ secrets.SCHEDULE_B64_6 }}
+          SCHEDULE_B64_7: ${{ secrets.SCHEDULE_B64_7 }}
+          SCHEDULE_B64_8: ${{ secrets.SCHEDULE_B64_8 }}
+          SCHEDULE_B64_9: ${{ secrets.SCHEDULE_B64_9 }}
+          SCHEDULE_B64_10: ${{ secrets.SCHEDULE_B64_10 }}
+          DEEP: ${{ github.event.inputs.deep || 'auto' }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || '0' }}
+          DEEP_PROB: '0.34'
+        run: python -u compliance_audit.py
+
+      # UNSCHEDULED extra sweep: 1 in 4 scheduled runs dispatches one extra
+      # deep audit at an unpredictable moment. probe=1 stops recursion.
+      - name: Unscheduled follow-up deep sweep
+        if: github.event_name == 'schedule' && github.event.inputs.dry_run != '1'
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          if [ $((RANDOM % 4)) -eq 0 ]; then
+            echo "launching one extra unscheduled deep self-check"
+            curl -sS --max-time 30 -X POST \
+              -H "Authorization: Bearer ${PAT_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/compliance-audit.yml/dispatches" \
+              -d '{"ref":"main","inputs":{"deep":"1","dry_run":"0","probe":"1"}}'
+          else
+            echo "no extra sweep this run"
+          fi
