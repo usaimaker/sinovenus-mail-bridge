@@ -31,6 +31,11 @@ from cloud_replenish import (REPO, PAT, GH, DATA_KEY, DAILY_CAP, CHUNK, BJT,
                              api, load_blob, save_blob, read_schedule, write_secrets)
 
 DRY_RUN = os.environ.get("DRY_RUN", "0") == "1"
+# schedule-replenish turns this on to EXTEND the runway with new future workdays.
+# Default OFF: lead-miner's plan job and the quota-guard cron keep their exact
+# existing behaviour (fill the existing runway, never create new dates).
+EXTEND = os.environ.get("EXTEND_RUNWAY", "0") == "1"
+MIN_RUNWAY_DAYS = int(os.environ.get("MIN_RUNWAY_DAYS", "5"))
 # Scan the whole runway (45 working days > current 34-day runway), not just a week.
 LOOKAHEAD_DAYS = int(os.environ.get("LOOKAHEAD_DAYS", "45"))
 # Safety ceiling only -- the real limit is the size of the validated pool.
@@ -67,12 +72,18 @@ def group_key(company):
 
 
 def fetch_ledger():
+    """Authoritative ledger. A failed read must NEVER be treated as empty:
+    that drops sent_ids (weakening the no-renumber assertion) and bounced
+    (letting dead addresses back into the plan). Fail closed instead."""
     try:
         d = json.loads(api(f"https://api.github.com/repos/{REPO}/contents/ledger.json"))
-        return json.loads(base64.b64decode(d["content"]).decode())
+        led = json.loads(base64.b64decode(d["content"]).decode())
+        if not isinstance(led.get("sent_ids"), list):
+            raise RuntimeError("ledger.sent_ids missing or malformed")
+        return led
     except Exception as e:
-        print("ledger read failed:", type(e).__name__, e)
-        return {"sent_ids": [], "daily": {}, "bounced": []}
+        print("ledger read failed - ABORT (fail-closed):", type(e).__name__, e)
+        raise SystemExit(1)
 
 
 def usable_pool(pool, entries, bounced):
@@ -155,7 +166,7 @@ def slot_ok(bjt_dt, existing):
     return all(abs(mins - m) >= MIN_GAP_MIN for m in existing.get(bjt_dt.date(), []))
 
 
-def build_new(entries, fresh, per_bjt, existing, max_fill):
+def build_new(entries, fresh, per_bjt, existing, max_fill, extend=False):
     now = datetime.datetime.now(BJT)
     today = now.date()
     start = today + datetime.timedelta(days=1)
@@ -186,7 +197,7 @@ def build_new(entries, fresh, per_bjt, existing, max_fill):
                 bjt_dt = local_dt.astimezone(BJT)
                 if bjt_dt.date() <= today:                        # never touch today/past
                     continue
-                if bjt_dt.date() > last_planned:                  # never extend runway here
+                if not extend and bjt_dt.date() > last_planned:    # extend mode may add new days
                     continue
                 dkey = bjt_dt.date().isoformat()                 # per_bjt keys are ISO strings
                 if per_bjt[dkey] >= DAILY_CAP:
@@ -291,12 +302,27 @@ def main():
     print(f"schedule={len(entries)} cap={DAILY_CAP}/BJT-day dry_run={DRY_RUN}")
     print(f"today={today} already_sent_today={ledger.get('daily', {}).get(str(today), 0)}")
     short_before, missing_before = plan_health(entries, today, "BEFORE")
-    if not short_before:
+    if EXTEND:
+        future_days = sorted(d for d in {e["bjt_send"][:10] for e in entries}
+                             if d > str(today))
+        workdays = [d for d in future_days
+                    if datetime.date.fromisoformat(d).weekday() < 5]
+        runway_days = len(workdays)
+        print(f"EXTEND MODE: runway={runway_days} future workdays "
+              f"(min={MIN_RUNWAY_DAYS}) last={workdays[-1] if workdays else '-'}")
+        if not short_before and runway_days >= MIN_RUNWAY_DAYS:
+            print("RUNWAY OK: plan complete and runway healthy -> nothing to do")
+            return 0
+        if not short_before:
+            print(f"EXTEND TARGET: plan complete but runway below {MIN_RUNWAY_DAYS} "
+                  f"workdays -> appending new future days")
+    elif not short_before:
         print("PLAN COMPLETE: every future BJT day already at cap -> nothing to do")
         return 0
-    print(f"FRONT-LOAD TARGET: {len(short_before)} workdays short, {missing_before} sends to place")
+    print(f"FRONT-LOAD TARGET: {len(short_before)} workdays short, "
+          f"{missing_before} sends to place" + (" (+ runway extension)" if EXTEND else ""))
 
-    pool = load_blob("pool.b64", [])
+    pool = load_blob("pool.b64", [], strict=True)
     fresh = usable_pool(pool, entries, bounced)
     print(f"pool={len(pool)} usable={len(fresh)}")
     if not fresh:
@@ -305,7 +331,8 @@ def main():
         return 0
 
     existing = day_minutes(entries)
-    new, used = build_new(entries, fresh, Counter(per_bjt), existing, MAX_FILL)
+    new, used = build_new(entries, fresh, Counter(per_bjt), existing, MAX_FILL,
+                          extend=EXTEND)
     print(f"would append {len(new)} entries:")
     by_day = Counter(e["bjt_send"][:10] for e in new)
     for d, n in sorted(by_day.items()):
