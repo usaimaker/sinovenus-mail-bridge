@@ -46,10 +46,12 @@ jobs:
       - run: pip install tzdata
 
       # UNSCHEDULED timing: the actual inspection moment is not predictable.
+      # Kept short (0-5 min) so a throttled cron burst cannot pile up queued
+      # audits, while the exact inspection time stays unpredictable.
       - name: Random inspection delay
         if: github.event.inputs.dry_run != '1'
         run: |
-          D=$((RANDOM % 900))
+          D=$((RANDOM % 300))
           echo "unscheduled self-check: sleeping ${D}s before inspection"
           sleep "$D"
 
