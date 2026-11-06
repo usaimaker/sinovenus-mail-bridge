@@ -1,7 +1,7 @@
 {
- "last_run": "2026-11-06T11:39:42.869245+08:00",
+ "last_run": "2026-11-06T11:40:28.801912+08:00",
  "last_deep": true,
- "deep_reason": "random=0.012<0.34",
+ "deep_reason": "forced by dispatch input",
  "entries": 683,
  "chunks": 3,
  "passes": 9,
@@ -20,11 +20,6 @@
    "code": "GAP_ZERO",
    "level": "INFO",
    "count": 4
-  },
-  {
-   "code": "SENT_ID_REMAP",
-   "level": "VIOLATION",
-   "count": 1
   }
  ],
  "sent_id_digest": "08acf9e8ef0745dbaf66c7185612a17e1b652fc4e183504d117c363252060cbb",
