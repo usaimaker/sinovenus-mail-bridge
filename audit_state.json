@@ -1,16 +1,11 @@
 {
- "last_run": "2026-11-06T05:36:09.384652+08:00",
+ "last_run": "2026-11-06T11:39:42.869245+08:00",
  "last_deep": true,
- "deep_reason": "random=0.017<0.34",
+ "deep_reason": "random=0.012<0.34",
  "entries": 683,
  "chunks": 3,
- "passes": 10,
+ "passes": 9,
  "findings": [
-  {
-   "code": "BOUNCED_IN_PLAN",
-   "level": "RISK",
-   "count": 1
-  },
   {
    "code": "DOMAIN_OWNERSHIP_INFO",
    "level": "INFO",
@@ -32,11 +27,11 @@
    "count": 1
   }
  ],
- "sent_id_digest": "51a400df06eb3127eab26582f887f30b9f3f18dda0659504e62ede2de0e023f4",
+ "sent_id_digest": "08acf9e8ef0745dbaf66c7185612a17e1b652fc4e183504d117c363252060cbb",
  "blob_sizes": {
-  "domains.b64": 315699,
-  "pool.b64": 15106,
-  "mined.b64": 8021,
+  "domains.b64": 313011,
+  "pool.b64": 20840,
+  "mined.b64": 12237,
   "discover.b64": 33
  },
  "alerted": {
