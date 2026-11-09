@@ -1,7 +1,7 @@
 {
- "last_run": "2026-11-10T06:20:34.812655+08:00",
+ "last_run": "2026-11-10T07:53:57.336047+08:00",
  "last_deep": true,
- "deep_reason": "escalated: quick findings=1 / recent_failure=False",
+ "deep_reason": "random=0.146<0.34",
  "entries": 683,
  "chunks": 3,
  "passes": 10,
@@ -32,7 +32,7 @@
    "count": 1
   }
  ],
- "sent_id_digest": "246f1da68d784f6fbdb21713e0d902d40b3200a029d563715ecb12212047a022",
+ "sent_id_digest": "e9e6641cbd18f7ac94c771aca71294aa23b93993c714d543e913a2421f718732",
  "blob_sizes": {
   "domains.b64": 307182,
   "pool.b64": 34327,
