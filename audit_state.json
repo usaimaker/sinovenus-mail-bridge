@@ -1,17 +1,46 @@
 {
- "last_run": "2026-11-10T01:53:55.632460+08:00",
- "last_deep": false,
- "deep_reason": "escalated: quick findings=0 / recent_failure=False",
+ "last_run": "2026-11-10T06:20:34.812655+08:00",
+ "last_deep": true,
+ "deep_reason": "escalated: quick findings=1 / recent_failure=False",
  "entries": 683,
  "chunks": 3,
- "passes": 9,
- "findings": [],
- "sent_id_digest": "02f4bb574533acaf20954ea68ef665270c55f0257bb33999914ca32a5cbfcfe4",
+ "passes": 10,
+ "findings": [
+  {
+   "code": "BOUNCED_IN_PLAN",
+   "level": "RISK",
+   "count": 1
+  },
+  {
+   "code": "DOMAIN_OWNERSHIP_INFO",
+   "level": "INFO",
+   "count": 1
+  },
+  {
+   "code": "GAP_UNDER_8",
+   "level": "INFO",
+   "count": 53
+  },
+  {
+   "code": "GAP_ZERO",
+   "level": "INFO",
+   "count": 3
+  },
+  {
+   "code": "SENT_ID_REMAP",
+   "level": "VIOLATION",
+   "count": 1
+  }
+ ],
+ "sent_id_digest": "246f1da68d784f6fbdb21713e0d902d40b3200a029d563715ecb12212047a022",
  "blob_sizes": {
   "domains.b64": 307182,
   "pool.b64": 34327,
   "mined.b64": 24626,
   "discover.b64": 34
  },
- "alerted": {}
+ "alerted": {
+  "BOUNCED_IN_PLAN": "2026-11-10",
+  "SENT_ID_REMAP": "2026-11-10"
+ }
 }
