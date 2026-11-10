@@ -1,5 +1,5 @@
 {
- "last_run": "2026-11-10T12:48:20.177971+08:00",
+ "last_run": "2026-11-10T19:11:48.382355+08:00",
  "last_deep": true,
  "deep_reason": "escalated: quick findings=1 / recent_failure=False",
  "entries": 683,
@@ -27,7 +27,7 @@
    "count": 1
   }
  ],
- "sent_id_digest": "ce5bab5dd792eb7057cb614893617a8c71ae5dffb3eecfbb08c1fba8565af0fe",
+ "sent_id_digest": "895f47d1cb2a46a9392d3aca889a8d5b7d7b1772c715d687f8a4995a00c1c270",
  "blob_sizes": {
   "domains.b64": 303950,
   "pool.b64": 39258,
