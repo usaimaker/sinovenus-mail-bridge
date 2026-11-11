@@ -1,7 +1,7 @@
 {
- "last_run": "2026-11-11T23:43:23.154859+08:00",
+ "last_run": "2026-11-11T23:44:14.135205+08:00",
  "last_deep": true,
- "deep_reason": "random=0.106<0.34",
+ "deep_reason": "forced by dispatch input",
  "entries": 683,
  "chunks": 3,
  "passes": 10,
