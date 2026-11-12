@@ -1,32 +1,11 @@
 {
- "last_run": "2026-11-13T03:52:21.871868+08:00",
- "last_deep": true,
- "deep_reason": "escalated: quick findings=1 / recent_failure=False",
+ "last_run": "2026-11-13T05:59:11.538089+08:00",
+ "last_deep": false,
+ "deep_reason": "escalated: quick findings=0 / recent_failure=False",
  "entries": 683,
  "chunks": 3,
- "passes": 10,
- "findings": [
-  {
-   "code": "DOMAIN_OWNERSHIP_INFO",
-   "level": "INFO",
-   "count": 1
-  },
-  {
-   "code": "GAP_UNDER_8",
-   "level": "INFO",
-   "count": 52
-  },
-  {
-   "code": "GAP_ZERO",
-   "level": "INFO",
-   "count": 3
-  },
-  {
-   "code": "SENT_ID_REMAP",
-   "level": "VIOLATION",
-   "count": 1
-  }
- ],
+ "passes": 9,
+ "findings": [],
  "sent_id_digest": "24062e3aad604c7c39343d648b8581aa90a70a7bafcd805344a027675f9f88c1",
  "blob_sizes": {
   "domains.b64": 299952,
