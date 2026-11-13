@@ -1,7 +1,7 @@
 {
- "last_run": "2026-11-13T11:36:30.156122+08:00",
+ "last_run": "2026-11-13T11:41:16.020129+08:00",
  "last_deep": true,
- "deep_reason": "escalated: quick findings=1 / recent_failure=False",
+ "deep_reason": "forced by dispatch input",
  "entries": 683,
  "chunks": 3,
  "passes": 10,
@@ -20,11 +20,6 @@
    "code": "GAP_ZERO",
    "level": "INFO",
    "count": 3
-  },
-  {
-   "code": "SENT_ID_REMAP",
-   "level": "VIOLATION",
-   "count": 1
   }
  ],
  "sent_id_digest": "5b686abc2b6bccefb24dc53c8086a0724d06a9eecf9ea29f3a8c3313f9b254f7",
