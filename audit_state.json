@@ -1,5 +1,5 @@
 {
- "last_run": "2026-11-13T11:41:16.020129+08:00",
+ "last_run": "2026-11-15T17:33:58.638100+08:00",
  "last_deep": true,
  "deep_reason": "forced by dispatch input",
  "entries": 683,
@@ -20,16 +20,21 @@
    "code": "GAP_ZERO",
    "level": "INFO",
    "count": 3
+  },
+  {
+   "code": "SENT_ID_REMAP",
+   "level": "VIOLATION",
+   "count": 1
   }
  ],
- "sent_id_digest": "5b686abc2b6bccefb24dc53c8086a0724d06a9eecf9ea29f3a8c3313f9b254f7",
+ "sent_id_digest": "131bbf2ae25d9bf2f9f60aac3ae024bcc675a2aa630d5b20afd8fe3a975b690c",
  "blob_sizes": {
-  "domains.b64": 298093,
-  "pool.b64": 56696,
-  "mined.b64": 41233,
-  "discover.b64": 35
+  "domains.b64": 295064,
+  "pool.b64": 70452,
+  "mined.b64": 48497,
+  "discover.b64": 31
  },
  "alerted": {
-  "SENT_ID_REMAP": "2026-11-13"
+  "SENT_ID_REMAP": "2026-11-15"
  }
 }
