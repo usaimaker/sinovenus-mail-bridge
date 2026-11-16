@@ -1,16 +1,11 @@
 {
- "last_run": "2026-11-16T19:15:46.994389+08:00",
+ "last_run": "2026-11-17T01:32:05.121394+08:00",
  "last_deep": true,
- "deep_reason": "random=0.027<0.34",
+ "deep_reason": "random=0.272<0.34",
  "entries": 683,
  "chunks": 3,
- "passes": 9,
+ "passes": 10,
  "findings": [
-  {
-   "code": "CHAIN_STALLED",
-   "level": "RISK",
-   "count": 1
-  },
   {
    "code": "DOMAIN_OWNERSHIP_INFO",
    "level": "INFO",
@@ -19,7 +14,7 @@
   {
    "code": "GAP_UNDER_8",
    "level": "INFO",
-   "count": 51
+   "count": 48
   },
   {
    "code": "GAP_ZERO",
@@ -27,18 +22,8 @@
    "count": 3
   },
   {
-   "code": "LEDGER_STALE",
-   "level": "RISK",
-   "count": 1
-  },
-  {
-   "code": "OVERDUE_UNSENT",
-   "level": "RISK",
-   "count": 1
-  },
-  {
-   "code": "UNRESOLVED_HEALTH_ALERT",
-   "level": "RISK",
+   "code": "SENT_ID_REMAP",
+   "level": "VIOLATION",
    "count": 1
   },
   {
@@ -47,7 +32,7 @@
    "count": 1
   }
  ],
- "sent_id_digest": "131bbf2ae25d9bf2f9f60aac3ae024bcc675a2aa630d5b20afd8fe3a975b690c",
+ "sent_id_digest": "70dc6a8cb9b876985123ea9bcf80b0deb9785473125616a726629439c4872feb",
  "blob_sizes": {
   "domains.b64": 291090,
   "pool.b64": 76402,
@@ -55,10 +40,7 @@
   "discover.b64": 33
  },
  "alerted": {
-  "LEDGER_STALE": "2026-11-16",
-  "OVERDUE_UNSENT": "2026-11-16",
-  "UNRESOLVED_HEALTH_ALERT": "2026-11-16",
-  "WORKFLOW_RUN_FAILED": "2026-11-16",
-  "CHAIN_STALLED": "2026-11-16"
+  "SENT_ID_REMAP": "2026-11-17",
+  "WORKFLOW_RUN_FAILED": "2026-11-17"
  }
 }
