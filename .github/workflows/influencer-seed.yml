@@ -1,0 +1,20 @@
+name: influencer-seed
+on:
+  schedule:
+    - cron: '*/20 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Send due influencer emails via live bridge SMTP
+        env:
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: python influencer_seed.py
