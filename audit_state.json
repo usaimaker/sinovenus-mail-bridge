@@ -1,17 +1,58 @@
 {
- "last_run": "2026-11-16T04:35:42.952206+08:00",
- "last_deep": false,
- "deep_reason": "escalated: quick findings=0 / recent_failure=False",
+ "last_run": "2026-11-16T11:07:58.895696+08:00",
+ "last_deep": true,
+ "deep_reason": "escalated: quick findings=4 / recent_failure=True",
  "entries": 683,
  "chunks": 3,
  "passes": 9,
- "findings": [],
+ "findings": [
+  {
+   "code": "DOMAIN_OWNERSHIP_INFO",
+   "level": "INFO",
+   "count": 1
+  },
+  {
+   "code": "GAP_UNDER_8",
+   "level": "INFO",
+   "count": 51
+  },
+  {
+   "code": "GAP_ZERO",
+   "level": "INFO",
+   "count": 3
+  },
+  {
+   "code": "LEDGER_STALE",
+   "level": "RISK",
+   "count": 1
+  },
+  {
+   "code": "OVERDUE_UNSENT",
+   "level": "RISK",
+   "count": 1
+  },
+  {
+   "code": "UNRESOLVED_HEALTH_ALERT",
+   "level": "RISK",
+   "count": 1
+  },
+  {
+   "code": "WORKFLOW_RUN_FAILED",
+   "level": "RISK",
+   "count": 1
+  }
+ ],
  "sent_id_digest": "131bbf2ae25d9bf2f9f60aac3ae024bcc675a2aa630d5b20afd8fe3a975b690c",
  "blob_sizes": {
-  "domains.b64": 295064,
-  "pool.b64": 70452,
-  "mined.b64": 48497,
-  "discover.b64": 31
+  "domains.b64": 291090,
+  "pool.b64": 76402,
+  "mined.b64": 52552,
+  "discover.b64": 33
  },
- "alerted": {}
+ "alerted": {
+  "LEDGER_STALE": "2026-11-16",
+  "OVERDUE_UNSENT": "2026-11-16",
+  "UNRESOLVED_HEALTH_ALERT": "2026-11-16",
+  "WORKFLOW_RUN_FAILED": "2026-11-16"
+ }
 }
