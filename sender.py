@@ -366,7 +366,7 @@ def main():
         today_s = now_bjt().strftime("%Y-%m-%d")
         if ledger.get("last_alert") != today_s:
             try:
-                alert = (f"From: {SMTP_USER}\r\nTo: alex@sinovenusltd.com\r\n"
+                runway_alert_msg = (f"From: {SMTP_USER}\r\nTo: alex@sinovenusltd.com\r\n"
                          f"Subject: [SinoVenus] schedule runway low: {days_left} days left\r\n"
                          f"Date: {__import__('email.utils').utils.format_datetime(now_bjt())}\r\n"
                          f"Content-Type: text/plain; charset=utf-8\r\n\r\n"
@@ -379,7 +379,7 @@ def main():
                 c = _ssl.create_default_context(); c.check_hostname = False; c.verify_mode = _ssl.CERT_NONE
                 s = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=c, timeout=45)
                 s.login(SMTP_USER, SMTP_PASS)
-                s.sendmail(SMTP_USER, ["alex@sinovenusltd.com"], alert.encode("utf-8"))
+                s.sendmail(SMTP_USER, ["alex@sinovenusltd.com"], runway_alert_msg.encode("utf-8"))
                 s.quit()
                 ledger["last_alert"] = today_s
                 print("ALERT email sent to alex@")
