@@ -1,7 +1,7 @@
 {
- "last_run": "2026-11-17T19:56:27.948780+08:00",
+ "last_run": "2026-11-18T01:10:56.424710+08:00",
  "last_deep": true,
- "deep_reason": "forced by dispatch input",
+ "deep_reason": "escalated: quick findings=1 / recent_failure=False",
  "entries": 683,
  "chunks": 3,
  "passes": 10,
@@ -22,12 +22,12 @@
    "count": 3
   },
   {
-   "code": "UNRESOLVED_HEALTH_ALERT",
-   "level": "RISK",
+   "code": "SENT_ID_REMAP",
+   "level": "VIOLATION",
    "count": 1
   }
  ],
- "sent_id_digest": "452615b8407d12c3b0795dff5210189ac9314a55a1c983996a7cb0f093189655",
+ "sent_id_digest": "6900f3368e65a646afd894c293387d6158240d6cb227bf1ca2b07c725e7b33eb",
  "blob_sizes": {
   "domains.b64": 286984,
   "pool.b64": 82020,
@@ -35,8 +35,6 @@
   "discover.b64": 33
  },
  "alerted": {
-  "SENT_ID_REMAP": "2026-11-17",
-  "WORKFLOW_RUN_FAILED": "2026-11-17",
-  "UNRESOLVED_HEALTH_ALERT": "2026-11-17"
+  "SENT_ID_REMAP": "2026-11-18"
  }
 }
