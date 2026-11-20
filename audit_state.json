@@ -1,7 +1,7 @@
 {
- "last_run": "2026-11-20T12:15:06.276356+08:00",
+ "last_run": "2026-11-20T19:42:19.038020+08:00",
  "last_deep": true,
- "deep_reason": "random=0.067<0.34",
+ "deep_reason": "escalated: quick findings=1 / recent_failure=False",
  "entries": 683,
  "chunks": 3,
  "passes": 10,
@@ -19,7 +19,7 @@
   {
    "code": "GAP_ZERO",
    "level": "INFO",
-   "count": 3
+   "count": 2
   },
   {
    "code": "SENT_ID_REMAP",
@@ -27,7 +27,7 @@
    "count": 1
   }
  ],
- "sent_id_digest": "5d1eef9fa941356f80584a54b0983ff6ffa0709d2a4824b790eecdc6aff4841e",
+ "sent_id_digest": "4955b33a9747aa859af9302359b2e47b33f12d702675e220c7bc38f88da790b4",
  "blob_sizes": {
   "domains.b64": 274622,
   "pool.b64": 94074,
