@@ -1,28 +1,12 @@
 {
- "last_run": "2026-11-24T03:36:29.480219+08:00",
- "last_deep": true,
- "deep_reason": "random=0.108<0.34",
+ "last_run": "2026-11-24T07:48:33.277642+08:00",
+ "last_deep": false,
+ "deep_reason": "escalated: quick findings=0 / recent_failure=False",
  "entries": 683,
  "chunks": 3,
- "passes": 10,
- "findings": [
-  {
-   "code": "DOMAIN_OWNERSHIP_INFO",
-   "level": "INFO",
-   "count": 1
-  },
-  {
-   "code": "GAP_UNDER_8",
-   "level": "INFO",
-   "count": 48
-  },
-  {
-   "code": "GAP_ZERO",
-   "level": "INFO",
-   "count": 2
-  }
- ],
- "sent_id_digest": "1305f9e3f56cbd05ada0c9f0afd419b86aae309d768e0ffe749435cb9661bcbf",
+ "passes": 9,
+ "findings": [],
+ "sent_id_digest": "066eb6fea7414f409c5ad3989947271763b4adf3dcb9c9c5bc082862370f70b6",
  "sent_id_map": {
   "sv0001": "sales@focustronic.com",
   "sv0002": "info@petoasisdubai.com",
@@ -323,7 +307,9 @@
   "sv0294": "info@agripetgarden.it",
   "sv0295": "danrider@danrider.dk",
   "sv0296": "klantenservice@vdmdtg.nl",
-  "sv0297": "carlos@nolnz.com"
+  "sv0297": "carlos@nolnz.com",
+  "sv0298": "info@glenbogal.nz",
+  "sv0299": "centralpet.service@cenversa.com.au"
  },
  "blob_sizes": {
   "domains.b64": 264099,
