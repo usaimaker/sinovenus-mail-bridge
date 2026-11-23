@@ -1,7 +1,7 @@
 {
- "last_run": "2026-11-23T20:37:51.454071+08:00",
+ "last_run": "2026-11-24T03:36:29.480219+08:00",
  "last_deep": true,
- "deep_reason": "forced by dispatch input",
+ "deep_reason": "random=0.108<0.34",
  "entries": 683,
  "chunks": 3,
  "passes": 10,
@@ -22,7 +22,7 @@
    "count": 2
   }
  ],
- "sent_id_digest": "0ff4d85cd612a680b63d3452d0b00b296142270939dab900e36c1049b75716e2",
+ "sent_id_digest": "1305f9e3f56cbd05ada0c9f0afd419b86aae309d768e0ffe749435cb9661bcbf",
  "sent_id_map": {
   "sv0001": "sales@focustronic.com",
   "sv0002": "info@petoasisdubai.com",
@@ -322,7 +322,8 @@
   "sv0293": "info@songrow.nl",
   "sv0294": "info@agripetgarden.it",
   "sv0295": "danrider@danrider.dk",
-  "sv0296": "klantenservice@vdmdtg.nl"
+  "sv0296": "klantenservice@vdmdtg.nl",
+  "sv0297": "carlos@nolnz.com"
  },
  "blob_sizes": {
   "domains.b64": 264099,
@@ -330,7 +331,5 @@
   "mined.b64": 80268,
   "discover.b64": 34
  },
- "alerted": {
-  "SENT_ID_REMAP": "2026-11-23"
- }
+ "alerted": {}
 }
