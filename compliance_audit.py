@@ -338,12 +338,18 @@ def quick_checks(a, entries, nchunks, ledger, ctx):
               f"{len(missing)} sent ids absent from plan (e.g. {missing[:3]})")
     mapping = {s: (by_id[s].get("email") or "").lower() for s in sent_ids if s in by_id}
     digest = hashlib.sha256(json.dumps(mapping, sort_keys=True).encode()).hexdigest()
-    prev = ctx["state"].get("sent_id_digest")
-    if prev and prev != digest:
-        a.add("SENT_ID_REMAP", "VIOLATION",
-              "sent id -> email mapping CHANGED since last audit: risk of re-sending "
-              "already-contacted leads")
+    # Renumbering bomb detector: compare ONLY ids present in the prior audit.
+    # Newly sent ids grow the map every day and must NOT trigger a remap alarm.
+    prev_map = ctx["state"].get("sent_id_map")
+    if isinstance(prev_map, dict) and prev_map:
+        drift = [s for s in prev_map if s in mapping and prev_map[s] != mapping[s]]
+        if drift:
+            a.add("SENT_ID_REMAP", "VIOLATION",
+                  f"{len(drift)} already-sent ids changed email (e.g. {drift[:3]}): "
+                  "risk of re-sending already-contacted leads")
+    # Legacy state without sent_id_map seeds the baseline silently on first run.
     ctx["sent_digest"] = digest
+    ctx["sent_map"] = mapping
     if len(by_id) != len(entries):
         a.add("DUP_ID", "VIOLATION", f"{len(entries) - len(by_id)} duplicate ids")
     if not missing:
@@ -726,6 +732,7 @@ def main():
         "findings": [{"code": r["code"], "level": r["level"], "count": r["count"]}
                      for r in results],
         "sent_id_digest": ctx.get("sent_digest") or state.get("sent_id_digest"),
+        "sent_id_map": ctx.get("sent_map") or state.get("sent_id_map", {}),
         "blob_sizes": ctx.get("blob_sizes") or state.get("blob_sizes", {}),
         "alerted": alerted,
     }
