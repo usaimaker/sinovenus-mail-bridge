@@ -1,17 +1,40 @@
 {
- "last_run": "2026-11-23T05:16:34.040376+08:00",
- "last_deep": false,
- "deep_reason": "escalated: quick findings=0 / recent_failure=False",
+ "last_run": "2026-11-23T12:01:00.520790+08:00",
+ "last_deep": true,
+ "deep_reason": "escalated: quick findings=1 / recent_failure=False",
  "entries": 683,
  "chunks": 3,
- "passes": 9,
- "findings": [],
- "sent_id_digest": "61ca0c7ac89091f6a2fee59dc801e4171a0308169c7f6cdca705c5eb4d699097",
+ "passes": 10,
+ "findings": [
+  {
+   "code": "DOMAIN_OWNERSHIP_INFO",
+   "level": "INFO",
+   "count": 1
+  },
+  {
+   "code": "GAP_UNDER_8",
+   "level": "INFO",
+   "count": 48
+  },
+  {
+   "code": "GAP_ZERO",
+   "level": "INFO",
+   "count": 2
+  },
+  {
+   "code": "SENT_ID_REMAP",
+   "level": "VIOLATION",
+   "count": 1
+  }
+ ],
+ "sent_id_digest": "29b4fb05f0cad2194b18f9b2027d32ff1449794b1b07ca134598584b049c6792",
  "blob_sizes": {
-  "domains.b64": 267534,
-  "pool.b64": 104254,
-  "mined.b64": 76773,
+  "domains.b64": 264099,
+  "pool.b64": 107120,
+  "mined.b64": 80268,
   "discover.b64": 34
  },
- "alerted": {}
+ "alerted": {
+  "SENT_ID_REMAP": "2026-11-23"
+ }
 }
