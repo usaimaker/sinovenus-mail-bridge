@@ -1,28 +1,12 @@
 {
- "last_run": "2026-11-24T15:12:47.958775+08:00",
- "last_deep": true,
- "deep_reason": "forced by dispatch input",
+ "last_run": "2026-11-24T21:43:16.423412+08:00",
+ "last_deep": false,
+ "deep_reason": "escalated: quick findings=0 / recent_failure=False",
  "entries": 683,
  "chunks": 3,
- "passes": 10,
- "findings": [
-  {
-   "code": "DOMAIN_OWNERSHIP_INFO",
-   "level": "INFO",
-   "count": 1
-  },
-  {
-   "code": "GAP_UNDER_8",
-   "level": "INFO",
-   "count": 48
-  },
-  {
-   "code": "GAP_ZERO",
-   "level": "INFO",
-   "count": 2
-  }
- ],
- "sent_id_digest": "cb36b2f548910e55a403455a96ab0013917b091bc6fa71da260aff459243dd60",
+ "passes": 9,
+ "findings": [],
+ "sent_id_digest": "5240aeb2ddf9e19f05b843d891ca11247c06ae23dfd7658c65c1ad1984b62e33",
  "sent_id_map": {
   "sv0001": "sales@focustronic.com",
   "sv0002": "info@petoasisdubai.com",
@@ -332,7 +316,17 @@
   "sv0303": "service@pinhwan.com.tw",
   "sv0304": "halan.taras@profizoo.com.ua",
   "sv0305": "info@g-hoener.de",
-  "sv0306": "biuro@4reptiles.pl"
+  "sv0306": "biuro@4reptiles.pl",
+  "sv0307": "horvath.vera@alpha-vet.hu",
+  "sv0308": "info@4tat.am",
+  "sv0309": "info@aqualogistik.com",
+  "sv0310": "sales@clydachpoultry.co.uk",
+  "sv0311": "trixie@greenview.com.mt",
+  "sv0312": "welcome@marketmasters.pt",
+  "sv0313": "milifar@milifar.com",
+  "sv0314": "nabava@djd-zagreb.hr",
+  "sv0315": "info@smulders.nl",
+  "sv0316": "trade@ipw.pet"
  },
  "blob_sizes": {
   "domains.b64": 260354,
