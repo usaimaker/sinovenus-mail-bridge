@@ -1,12 +1,12 @@
 {
- "last_run": "2026-11-25T13:42:39.244456+08:00",
+ "last_run": "2026-11-25T20:56:49.806514+08:00",
  "last_deep": false,
  "deep_reason": "escalated: quick findings=0 / recent_failure=False",
  "entries": 683,
  "chunks": 3,
  "passes": 9,
  "findings": [],
- "sent_id_digest": "97054f0839315f8f07677bb9bc04e5f1e2f042336f363fe9617e441d301dcb20",
+ "sent_id_digest": "1c147fe6d424498130c98fe2b226e6870f6b234200c49a31eac226f03eb45f16",
  "sent_id_map": {
   "sv0001": "sales@focustronic.com",
   "sv0002": "info@petoasisdubai.com",
@@ -334,7 +334,19 @@
   "sv0321": "bharat@orangepet.in",
   "sv0322": "info@greenyaquaculture.com.my",
   "sv0323": "customerservice@reefdepot.com.sg",
-  "sv0324": "mashukov@kaznova.kz"
+  "sv0324": "mashukov@kaznova.kz",
+  "sv0325": "biuro@meatlovepolska.pl",
+  "sv0326": "info@karamellu.com",
+  "sv0327": "office@arkwildlife.co.uk",
+  "sv0328": "info@skypetproducts.com",
+  "sv0329": "info@europeanaquaristics.com",
+  "sv0330": "info@n-id.fr",
+  "sv0331": "bas@finestpetfoods.com",
+  "sv0332": "info@ppte.sa",
+  "sv0333": "info@tommicz.eu",
+  "sv0334": "tonis.lokk@optimer.ee",
+  "sv0335": "napankraci@spokojenypes.cz",
+  "sv0336": "g.kallinger@mera-petfood.com"
  },
  "blob_sizes": {
   "domains.b64": 256892,
