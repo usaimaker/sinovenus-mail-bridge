@@ -1,12 +1,12 @@
 {
- "last_run": "2026-11-25T08:05:48.045411+08:00",
+ "last_run": "2026-11-25T13:42:39.244456+08:00",
  "last_deep": false,
  "deep_reason": "escalated: quick findings=0 / recent_failure=False",
  "entries": 683,
  "chunks": 3,
  "passes": 9,
  "findings": [],
- "sent_id_digest": "788264926b0a82fd52460958e49222aa54da7111a3a746288158f9f1d4020796",
+ "sent_id_digest": "97054f0839315f8f07677bb9bc04e5f1e2f042336f363fe9617e441d301dcb20",
  "sent_id_map": {
   "sv0001": "sales@focustronic.com",
   "sv0002": "info@petoasisdubai.com",
@@ -328,12 +328,18 @@
   "sv0315": "info@smulders.nl",
   "sv0316": "trade@ipw.pet",
   "sv0317": "hgpark@interpetkorea.com",
-  "sv0318": "info@pet-link.com"
+  "sv0318": "info@pet-link.com",
+  "sv0319": "sales@link2linkco.com",
+  "sv0320": "a.marketing@aintla.com",
+  "sv0321": "bharat@orangepet.in",
+  "sv0322": "info@greenyaquaculture.com.my",
+  "sv0323": "customerservice@reefdepot.com.sg",
+  "sv0324": "mashukov@kaznova.kz"
  },
  "blob_sizes": {
-  "domains.b64": 260354,
-  "pool.b64": 108110,
-  "mined.b64": 84087,
+  "domains.b64": 256892,
+  "pool.b64": 109408,
+  "mined.b64": 87685,
   "discover.b64": 34
  },
  "alerted": {}
