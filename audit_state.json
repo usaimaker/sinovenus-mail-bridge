@@ -1,28 +1,12 @@
 {
- "last_run": "2026-11-27T05:27:14.543132+08:00",
- "last_deep": true,
- "deep_reason": "random=0.161<0.34",
+ "last_run": "2026-11-27T07:58:54.222829+08:00",
+ "last_deep": false,
+ "deep_reason": "escalated: quick findings=0 / recent_failure=False",
  "entries": 683,
  "chunks": 3,
- "passes": 10,
- "findings": [
-  {
-   "code": "DOMAIN_OWNERSHIP_INFO",
-   "level": "INFO",
-   "count": 1
-  },
-  {
-   "code": "GAP_UNDER_8",
-   "level": "INFO",
-   "count": 43
-  },
-  {
-   "code": "GAP_ZERO",
-   "level": "INFO",
-   "count": 1
-  }
- ],
- "sent_id_digest": "c7ee9a865f038ee11e4dcbf899f4b6dad1dc0b974cfc66a714cea7265a22788f",
+ "passes": 9,
+ "findings": [],
+ "sent_id_digest": "3a8777199ee2757b76ada201cf9638d8d94c0e69685f42f490c74aa280a760dc",
  "sent_id_map": {
   "sv0001": "sales@focustronic.com",
   "sv0002": "info@petoasisdubai.com",
@@ -384,7 +368,10 @@
   "sv0355": "morkous@vet4ever.com",
   "sv0356": "ara@ara.waw.pl",
   "sv0357": "sales@aquariumsaustralia.com.au",
-  "sv0358": "michael.elvidge@petwise.com.au"
+  "sv0358": "michael.elvidge@petwise.com.au",
+  "sv0359": "sales@clubpet.com.au",
+  "sv0360": "sales@petworx.com.au",
+  "sv0361": "lss-okabe@lss.jp"
  },
  "blob_sizes": {
   "domains.b64": 253175,
