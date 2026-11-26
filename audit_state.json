@@ -1,7 +1,7 @@
 {
- "last_run": "2026-11-27T02:02:34.584491+08:00",
+ "last_run": "2026-11-27T05:27:14.543132+08:00",
  "last_deep": true,
- "deep_reason": "forced by dispatch input",
+ "deep_reason": "random=0.161<0.34",
  "entries": 683,
  "chunks": 3,
  "passes": 10,
@@ -22,7 +22,7 @@
    "count": 1
   }
  ],
- "sent_id_digest": "b4509835d2ec4bc41493dd958b1095772a6bd2107a24696adc3e046bf9f9619f",
+ "sent_id_digest": "c7ee9a865f038ee11e4dcbf899f4b6dad1dc0b974cfc66a714cea7265a22788f",
  "sent_id_map": {
   "sv0001": "sales@focustronic.com",
   "sv0002": "info@petoasisdubai.com",
@@ -382,7 +382,9 @@
   "sv0353": "lars@thordal.dk",
   "sv0354": "ostrand@ostrand.dk",
   "sv0355": "morkous@vet4ever.com",
-  "sv0356": "ara@ara.waw.pl"
+  "sv0356": "ara@ara.waw.pl",
+  "sv0357": "sales@aquariumsaustralia.com.au",
+  "sv0358": "michael.elvidge@petwise.com.au"
  },
  "blob_sizes": {
   "domains.b64": 253175,
