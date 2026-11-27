@@ -1,12 +1,12 @@
 {
- "last_run": "2026-11-27T13:22:24.673887+08:00",
+ "last_run": "2026-11-27T20:20:20.971322+08:00",
  "last_deep": false,
  "deep_reason": "escalated: quick findings=0 / recent_failure=False",
  "entries": 683,
  "chunks": 3,
  "passes": 9,
  "findings": [],
- "sent_id_digest": "717bdbbad1e54543edabafd80a72567b1e50454eda226b0b104d11084a8ff435",
+ "sent_id_digest": "19c45fb58284785ea8ba68b4d5e6926fc52448dfae7f937c94bcfce2e5a0348c",
  "sent_id_map": {
   "sv0001": "sales@focustronic.com",
   "sv0002": "info@petoasisdubai.com",
@@ -376,7 +376,13 @@
   "sv0363": "info@ishimarine.in",
   "sv0364": "sales@maplepets.in",
   "sv0365": "order@thaiqianhu.com",
-  "sv0366": "jamil@gamidov.com"
+  "sv0366": "jamil@gamidov.com",
+  "sv0367": "info@kiezebrink.be",
+  "sv0368": "yagu@grupoyagu.com",
+  "sv0369": "info@leotsakos.gr",
+  "sv0647": "info@achilles-aquatics.nl",
+  "sv0645": "shop@aaronspets.co.uk",
+  "sv0370": "ales.jamsek@evj-kabel.net"
  },
  "blob_sizes": {
   "domains.b64": 249194,
