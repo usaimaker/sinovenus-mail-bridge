@@ -1,12 +1,28 @@
 {
- "last_run": "2026-11-27T07:58:54.222829+08:00",
- "last_deep": false,
- "deep_reason": "escalated: quick findings=0 / recent_failure=False",
+ "last_run": "2026-11-27T08:01:16.800684+08:00",
+ "last_deep": true,
+ "deep_reason": "forced by dispatch input",
  "entries": 683,
  "chunks": 3,
- "passes": 9,
- "findings": [],
- "sent_id_digest": "3a8777199ee2757b76ada201cf9638d8d94c0e69685f42f490c74aa280a760dc",
+ "passes": 10,
+ "findings": [
+  {
+   "code": "DOMAIN_OWNERSHIP_INFO",
+   "level": "INFO",
+   "count": 1
+  },
+  {
+   "code": "GAP_UNDER_8",
+   "level": "INFO",
+   "count": 43
+  },
+  {
+   "code": "GAP_ZERO",
+   "level": "INFO",
+   "count": 1
+  }
+ ],
+ "sent_id_digest": "b4e44193f750dd357f4292783e7948f8156907447a10de5d65d2bd0bb726d362",
  "sent_id_map": {
   "sv0001": "sales@focustronic.com",
   "sv0002": "info@petoasisdubai.com",
@@ -371,7 +387,8 @@
   "sv0358": "michael.elvidge@petwise.com.au",
   "sv0359": "sales@clubpet.com.au",
   "sv0360": "sales@petworx.com.au",
-  "sv0361": "lss-okabe@lss.jp"
+  "sv0361": "lss-okabe@lss.jp",
+  "sv0362": "stacey@cwa.com.tw"
  },
  "blob_sizes": {
   "domains.b64": 253175,
