@@ -1,11 +1,22 @@
 {
- "last_run": "2026-11-28T07:45:23.816592+08:00",
- "last_deep": false,
- "deep_reason": "escalated: quick findings=0 / recent_failure=False",
+ "last_run": "2026-11-28T07:50:41.596548+08:00",
+ "last_deep": true,
+ "deep_reason": "forced by dispatch input",
  "entries": 683,
  "chunks": 3,
- "passes": 9,
- "findings": [],
+ "passes": 10,
+ "findings": [
+  {
+   "code": "DOMAIN_OWNERSHIP_INFO",
+   "level": "INFO",
+   "count": 1
+  },
+  {
+   "code": "GAP_UNDER_8",
+   "level": "INFO",
+   "count": 43
+  }
+ ],
  "sent_id_digest": "da4de9db4edc2e9534da784a46ef84c4be3745588877224f70ed1a5370e98bd1",
  "sent_id_map": {
   "sv0001": "sales@focustronic.com",
